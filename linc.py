@@ -7,13 +7,14 @@ import subprocess
 import sys
 import time
 
-__commit__ = "unknown"
+__commit__ = ""
 NAME = os.environ.get("LINC_NAME", "linc-shell")
 IMAGE = os.environ.get("LINC_IMAGE", "docker:29-dind")
 PLATFORM = os.environ.get("LINC_PLATFORM", "linux/amd64")
 PORT = os.environ.get("LINC_PORT", "8000:8000")
 CACHEVOLUME = os.environ.get("LINC_CACHEVOLUME", "linc-cache")
 SETUPVERSION = os.environ.get("LINC_SETUPVERSION", "registry.lakedrops.com/docker/l3d/setup:latest")
+PROJECSTDIR = os.environ.get("LINC_PROJECTSDIR", "~/Projects")
 
 
 def find_runtime():
@@ -67,7 +68,7 @@ def base_run_cmd(runtime):
             "-v", f"{ssh_auth_sock}:/ssh-agent",
         ]
 
-    home_projects = os.path.expanduser("~/Projects")
+    home_projects = os.path.expanduser(PROJECSTDIR)
     if os.path.isdir(home_projects):
         cmd += [
             "-v", f"{home_projects}:/Projects",
@@ -136,9 +137,9 @@ def container_reset(runtime):
     print("Resetting container runtime")
 
     commands = [
-        ["container", "system", "stop"],
-        ["container", "system", "start"],
-        ["container", "rm", "-f", "--all"],
+        [runtime, "system", "stop"],
+        [runtime, "system", "start"],
+        [runtime, "rm", "-f", "--all"],
     ]
 
     run_commands_with_retry(commands)
@@ -156,11 +157,11 @@ def shell(runtime, cmdparam):
 
 
 def l3d(runtime, args):
-    home_projects = os.path.expanduser("~/Projects").replace('\\','/')
+    home_projects = os.path.expanduser(PROJECSTDIR).replace('\\','/')
     cwd = os.getcwd().replace('\\','/')
 
     if not cwd.startswith(home_projects):
-        print("Error: You must run this command inside a project under ~/Projects.", file=sys.stderr)
+        print(f"Error: You must run this command inside a project under {PROJECSTDIR}.", file=sys.stderr)
         sys.exit(1)
 
     container_dir = "/Projects" + cwd[len(home_projects):]
@@ -170,8 +171,7 @@ def l3d(runtime, args):
         cmdstr += " " + " ".join(args)
 
     shell(runtime, ["/bin/sh", "-c", cmdstr])
-
-
+        
 def main():
     runtime = os.environ.get("LINC_RUNTIME", find_runtime())
     if not runtime:
@@ -183,7 +183,7 @@ def main():
     )
     parser.add_argument(
         "command",
-        choices=["start", "stop", "shell", "l3d", "container-reset"],
+        choices=["up", "down", "shell", "l3d", "container-reset"],
         help="Action to perform",
     )
     parser.add_argument(
@@ -194,9 +194,9 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "start":
+    if args.command == "up":
         start(runtime)
-    elif args.command == "stop":
+    elif args.command == "down":
         stop(runtime)
     elif args.command == "shell":
         shell(runtime, ["sh"])
