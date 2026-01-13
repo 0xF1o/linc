@@ -75,9 +75,7 @@ def base_run_cmd(runtime):
             "-w", "/Projects"
         ]
 
-    username = os.environ.get("USERNAME")
-    if username:
-        cmd += ["-e", f"USERNAME={username}"]
+    cmd += ["-e", f"USER={os.getlogin()}"]
 
     if len(CACHEVOLUME) > 0:
         subprocess.run([runtime, "volume", "create", CACHEVOLUME], check=False)
@@ -178,18 +176,31 @@ def main():
         print("Error: No container runtime found", file=sys.stderr)
         sys.exit(1)
 
-    parser = argparse.ArgumentParser(
-        description="Manage the linc dind container"
+    help_description = (
+        "Manage the linc environment.\n\n"
+        "Commands:\n"
+        "  up, start          Start the linc dind container and run initial setup.\n"
+        "  down, stop         Stop and remove the linc container.\n"
+        "  shell              Open an interactive shell inside the running container.\n"
+        "  l3d                Run l3d inside the container (for project commands). Any following args are forwarded to l3d.\n"
+        "  container-reset    Reset and remove (delete!) all containers (only when LINC_RUNTIME=container).\n\n"
     )
+
+    parser = argparse.ArgumentParser(
+        description=help_description,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
     parser.add_argument(
         "command",
-        choices=["up", "down", "shell", "l3d", "container-reset"],
+        choices=["up", "start", "down", "stop", "shell", "l3d", "container-reset"],
         help="Action to perform",
     )
+
     parser.add_argument(
         "cmd_args",
         nargs=argparse.REMAINDER,
-        help="Optional arguments for command",
+        help="Extra arguments forwarded to the command (used by l3d)",
     )
 
     args = parser.parse_args()
