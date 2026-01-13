@@ -137,7 +137,7 @@ def container_reset(runtime):
     commands = [
         [runtime, "system", "stop"],
         [runtime, "system", "start"],
-        [runtime, "rm", "-f", "--all"],
+        [runtime, "rm", "-f", NAME],
     ]
 
     run_commands_with_retry(commands)
@@ -183,7 +183,7 @@ def main():
         "  down, stop         Stop and remove the linc container.\n"
         "  shell              Open an interactive shell inside the running container.\n"
         "  l3d                Run l3d inside the container (for project commands). Any following args are forwarded to l3d.\n"
-        "  container-reset    Reset and remove (delete!) all containers (only when LINC_RUNTIME=container).\n\n"
+        "  container-reset    Restart container system and remove linc container (only when LINC_RUNTIME=container).\n\n"
     )
 
     parser = argparse.ArgumentParser(
