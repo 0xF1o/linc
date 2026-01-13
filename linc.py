@@ -196,7 +196,11 @@ def main():
 
     if args.command == "up":
         start(runtime)
+    if args.command == "start":
+        start(runtime)
     elif args.command == "down":
+        stop(runtime)        
+    elif args.command == "stop":
         stop(runtime)
     elif args.command == "shell":
         shell(runtime, ["sh"])
