@@ -41,7 +41,7 @@ PORT = os.environ.get("LINC_PORT", "8000:8000")
 CACHEVOLUME = os.environ.get("LINC_CACHEVOLUME", "linc-cache")
 SETUPVERSION = os.environ.get("LINC_SETUPVERSION", "registry.lakedrops.com/docker/l3d/setup:latest")
 PROJECSTDIR = os.environ.get("LINC_PROJECTSDIR", "~/Projects")
-FORWARDUSER = is_trueish(os.environ.get("LINC_FORWARDUSER", str(sys.platform == "linux")))
+FORWARDUSERID = is_trueish(os.environ.get("LINC_FORWARDUSERID", str(sys.platform == "linux")))
 USERNAME = os.environ.get("LINC_USERNAME", getpass.getuser())
 
 def find_runtime() -> str:
@@ -104,6 +104,8 @@ def base_run_cmd(runtime):
             "-v", f"{home_projects}:/Projects",
             "-w", "/Projects"
         ]
+    else:
+        print(f"Warning! Project directory does not exist ({PROJECSTDIR})")
 
     cmd += [
         "-e", f"USER={USERNAME}",
@@ -121,7 +123,7 @@ def run_setup(runtime):
     print("Running linc setup inside container")
 
     setup_cmd = (
-        "apk add bash tzdata ; "
+        "apk add bash tzdata setpriv ; "
         "cp /usr/share/zoneinfo/UTC /etc/localtime ; "
         "touch /etc/timezone /etc/sudoers ; "
         "until docker info >/dev/null 2>&1; do printf '.'; sleep 1; done; "
@@ -130,47 +132,25 @@ def run_setup(runtime):
         f"docker run -v /usr/local/bin:/setup --rm {SETUPVERSION} ; "
     )
 
-    if FORWARDUSER:
-        groupids = " ".join(str(gid) for gid in os.getgroups())
-        uid = os.getuid()
-        gid = os.getgid()
-
+    if FORWARDUSERID:
         setup_cmd += (
-            f"echo {USERNAME}:x:{uid}:{gid}:l3d user:/home/flo:/bin/bash >> /etc/passwd ; "
+            f"echo {USERNAME}:x:{os.getuid()}:{os.getgid()}:l3d user:/home/flo:/bin/bash >> /etc/passwd ; "
             f"echo '{USERNAME} ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers ; "
-
-            "sed "
-            f"-e 's/=\\$(id -g)/={gid}/g' "
-            f"-e 's/=\\$(id -G)/=\"{groupids}\"/g' "
-            f"-e 's/=\\$(id -u)/={uid}/g' "
-            "-e 's/=\\${HOME}/=\\/.hostuserhome/g' "
-            "-i.orig $(which l3d) ; "
-
-            "chmod -x $(which l3d).orig ; "
-            "diff -U0 $(which l3d).orig $(which l3d) ; "
         )
 
     setup_cmd += "grep 'registry.lakedrops.com' $(which l3d) ; "
 
-    subprocess.check_call([
-        runtime,
-        "exec",
-        "-it",
-        NAME,
-        "/bin/sh",
-        "-c",
-        setup_cmd,
-    ])
+    subprocess.check_call([runtime, "exec", "-it", NAME, "/bin/sh", "-c", setup_cmd])
 
 
 def start(runtime):
     print(f"Starting {NAME} using {runtime}")
 
+    subprocess.run([runtime, "rm", "-f", NAME], check=False, capture_output=True)
+    subprocess.run([runtime, "rm", "-f", NAME], check=False, capture_output=True)
+
     try:
-        subprocess.run(
-            base_run_cmd(runtime) + [IMAGE],
-            check=True,
-        )
+        subprocess.run(base_run_cmd(runtime) + [IMAGE], check=True)
     except subprocess.CalledProcessError as e:
         print(f"Failed to start container '{NAME}' using {runtime}.", file=sys.stderr)
         sys.exit(e.returncode)
@@ -199,13 +179,8 @@ def container_reset(runtime):
     run_commands_with_retry(commands)
 
 
-def shell(runtime, cmdparam):
-    cmd = [
-        runtime,
-        "exec",
-        "-it",
-        NAME
-    ]
+def shell(runtime, cmdparam=["/bin/sh"], execparam=[]):
+    cmd = [runtime, "exec"] + execparam + ["-it", NAME]
     proc = subprocess.run(cmd + cmdparam)
     sys.exit(proc.returncode)
 
@@ -223,8 +198,15 @@ def l3d(runtime, args):
     cmdstr = f"cd '{container_dir}' && l3d"
     if args:
         cmdstr += " " + " ".join(args)
+    cmdparam = ["/bin/sh", "-c", cmdstr]
+    execparam = []
 
-    shell(runtime, ["/bin/sh", "-c", cmdstr])
+    if FORWARDUSERID:
+        groupids = ",".join(str(gid) for gid in os.getgroups())
+        execparam += ["-e", "HOME=/.hostuserhome"]
+        cmdparam = ["/bin/setpriv", "--reuid", f"{os.getuid()}", "--regid", f"{os.getgid()}", "--groups", f"{groupids}"] + cmdparam
+
+    shell(runtime, cmdparam, execparam)
         
 def main():
     runtime = os.environ.get("LINC_RUNTIME", find_runtime())
@@ -270,7 +252,7 @@ def main():
     elif args.command == "stop":
         stop(runtime)
     elif args.command == "shell":
-        shell(runtime, ["sh"])
+        shell(runtime)
     elif args.command == "l3d":
         l3d(runtime, args.cmd_args)
     elif args.command == "container-reset":
