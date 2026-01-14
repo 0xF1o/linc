@@ -207,11 +207,10 @@ def l3d(runtime, args):
     if args:
         cmdstr += " " + " ".join(args)
     cmdparam = ["/bin/sh", "-c", cmdstr]
-    execparam = []
+    execparam = ["-e", "HOME=/.hostuserhome"]
 
     if FORWARDUSERID:
         groupids = ",".join(str(gid) for gid in os.getgroups())
-        execparam += ["-e", "HOME=/.hostuserhome"]
         cmdparam = ["/bin/setpriv", "--reuid", f"{os.getuid()}", "--regid", f"{os.getgid()}", "--groups", f"{groupids}"] + cmdparam
 
     shell(runtime, cmdparam, execparam)
