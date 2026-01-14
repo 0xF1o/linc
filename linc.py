@@ -135,7 +135,7 @@ def run_setup(runtime):
     if FORWARDUSERID:
         setup_cmd += (
             f"echo {USERNAME}:x:{os.getuid()}:{os.getgid()}:l3d user:/home/flo:/bin/bash >> /etc/passwd ; "
-            f"echo '{USERNAME} ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers ; "
+            f"echo '{USERNAME} ALL=(ALL:ALL) NOPASSWD: ALL' >> /etc/sudoers ; "
         )
 
     setup_cmd += "grep 'registry.lakedrops.com' $(which l3d) ; "
@@ -160,6 +160,7 @@ def start(runtime):
 
 def stop(runtime):
     print(f"Stopping {NAME}")
+    subprocess.run([runtime, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False)
     subprocess.run([runtime, "rm", "-f", NAME], check=False)
 
 
@@ -242,14 +243,9 @@ def main():
     )
 
     args = parser.parse_args()
-
-    if args.command == "up":
+    if args.command in ('up', 'start'):
         start(runtime)
-    if args.command == "start":
-        start(runtime)
-    elif args.command == "down":
-        stop(runtime)        
-    elif args.command == "stop":
+    elif args.command in ('down', 'stop'):
         stop(runtime)
     elif args.command == "shell":
         shell(runtime)
