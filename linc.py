@@ -158,10 +158,14 @@ def start(runtime):
     run_setup(runtime)
 
 
-def stop(runtime):
+def stop(runtime, clean_cache=False):
     print(f"Stopping {NAME}")
     subprocess.run([runtime, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False)
     subprocess.run([runtime, "rm", "-f", NAME], check=False)
+    
+    if clean_cache and len(CACHEVOLUME) > 0:
+        print(f"Cleaning cache")
+        subprocess.run([runtime, "volume", "rm", "-f", CACHEVOLUME], check=False)
 
 
 def container_reset(runtime):
@@ -218,10 +222,11 @@ def main():
     help_description = (
         "Manage the linc environment.\n\n"
         "Commands:\n"
-        "  up, start          Start the linc dind container and run initial setup.\n"
-        "  down, stop         Stop and remove the linc container.\n"
-        "  shell              Open an interactive shell inside the running container.\n"
-        "  l3d                Run l3d inside the container (for project commands). Any following args are forwarded to l3d.\n"
+        "  up, start          [Re]Start linc and run initial setup.\n"
+        "  down, stop [--cc]  Remove linc [and purge cache].\n"
+        "  l3d [args...]      Run l3d inside the container (for project commands). Any following args are forwarded to l3d.\n\n"
+        "Tools:\n"
+        "  shell              Open an interactive root shell inside the running container.\n"        
         "  container-reset    Restart container system and remove linc container (only when LINC_RUNTIME=container).\n\n"
     )
 
@@ -230,29 +235,37 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    parser.add_argument(
-        "command",
-        choices=["up", "start", "down", "stop", "shell", "l3d", "container-reset"],
-        help="Action to perform",
-    )
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    parser.add_argument(
-        "cmd_args",
-        nargs=argparse.REMAINDER,
-        help="Extra arguments forwarded to the command (used by l3d)",
-    )
+    sub.add_parser("up")
+    sub.add_parser("start")
+
+    down = sub.add_parser("down")
+    down.add_argument("--cc", action="store_true")
+
+    stop_cmd = sub.add_parser("stop")
+    stop_cmd.add_argument("--cc", action="store_true")
+
+    sub.add_parser("shell")
+
+    l3d_cmd = sub.add_parser("l3d")
+    l3d_cmd.add_argument("cmd_args", nargs=argparse.REMAINDER)
+
+    sub.add_parser("container-reset")
 
     args = parser.parse_args()
-    if args.command in ('up', 'start'):
+
+    if args.command in ("up", "start"):
         start(runtime)
-    elif args.command in ('down', 'stop'):
-        stop(runtime)
+    elif args.command in ("down", "stop"):
+        stop(runtime, clean_cache=getattr(args, "cc", False))
     elif args.command == "shell":
         shell(runtime)
     elif args.command == "l3d":
         l3d(runtime, args.cmd_args)
     elif args.command == "container-reset":
         container_reset(runtime)
+
 
 
 if __name__ == "__main__":
