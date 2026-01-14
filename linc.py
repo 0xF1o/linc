@@ -42,6 +42,7 @@ CACHEVOLUME = os.environ.get("LINC_CACHEVOLUME", "linc-cache")
 SETUPVERSION = os.environ.get("LINC_SETUPVERSION", "registry.lakedrops.com/docker/l3d/setup:latest")
 PROJECSTDIR = os.environ.get("LINC_PROJECTSDIR", "~/Projects")
 FORWARDUSERID = is_trueish(os.environ.get("LINC_FORWARDUSERID", str(sys.platform == "linux")))
+DEBUG = is_trueish(os.environ.get("LINC_DEBUG", "0"))
 USERNAME = os.environ.get("LINC_USERNAME", getpass.getuser())
 
 def find_runtime() -> str:
@@ -88,15 +89,14 @@ def base_run_cmd(runtime):
     if runtime in ("docker", "podman"):
         cmd.append("--privileged")
     
-    if runtime in ("container"):
-        cmd.append("--ssh")
-
-    ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
+    ssh_auth_sock = os.path.realpath(os.environ.get("SSH_AUTH_SOCK"))
     if ssh_auth_sock and os.path.exists(ssh_auth_sock):
         cmd += [
-            "-e", "SSH_AUTH_SOCK=/ssh-agent",
-            "-v", f"{ssh_auth_sock}:/ssh-agent",
+             "-e", "SSH_AUTH_SOCK=/ssh-agent",
+             "-v", f"{ssh_auth_sock}:/ssh-agent",
         ]
+    elif runtime in ("container"):
+        cmd.append("--ssh")
 
     home_projects = os.path.expanduser(PROJECSTDIR)
     if os.path.isdir(home_projects):
@@ -149,10 +149,13 @@ def start(runtime):
     subprocess.run([runtime, "rm", "-f", NAME], check=False, capture_output=True)
     subprocess.run([runtime, "rm", "-f", NAME], check=False, capture_output=True)
 
+    cmd = base_run_cmd(runtime) + [IMAGE]
     try:
-        subprocess.run(base_run_cmd(runtime) + [IMAGE], check=True)
+        subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Failed to start container '{NAME}' using {runtime}.", file=sys.stderr)
+        if DEBUG:
+            print("> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
         sys.exit(e.returncode)
 
     run_setup(runtime)
@@ -165,7 +168,7 @@ def stop(runtime, clean_cache=False):
     
     if clean_cache and len(CACHEVOLUME) > 0:
         print(f"Cleaning cache")
-        subprocess.run([runtime, "volume", "rm", "-f", CACHEVOLUME], check=False)
+        subprocess.run([runtime, "volume", "rm", CACHEVOLUME], check=False)
 
 
 def container_reset(runtime):
