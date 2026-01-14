@@ -6,8 +6,34 @@ import shutil
 import subprocess
 import sys
 import time
+import getpass
+import shlex
+from pathlib import Path
+from typing import Iterable
 
-__commit__ = ""
+def load_env(filename: str, prefixes: Iterable[str]) -> None:
+    for path in reversed([Path.cwd(), *Path.cwd().parents]):
+        env_file = path / filename
+        if env_file.exists():
+            load_env_file(env_file, prefixes)
+
+def load_env_file(path: Path, prefixes: Iterable[str]) -> None:
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            if any(line.startswith(pfx) for pfx in prefixes):
+                key, value = line.split("=", 1)
+                os.environ[key] = shlex.split(value)[0]
+
+load_env(".env", ["LINC_"])
+
+def is_trueish(s: str) -> bool:
+    trueish = ['true', 'yes', 'y', '1'] 
+    return s.lower() in trueish
+
 NAME = os.environ.get("LINC_NAME", "linc-shell")
 IMAGE = os.environ.get("LINC_IMAGE", "docker:29-dind")
 PLATFORM = os.environ.get("LINC_PLATFORM", "linux/amd64")
@@ -15,9 +41,10 @@ PORT = os.environ.get("LINC_PORT", "8000:8000")
 CACHEVOLUME = os.environ.get("LINC_CACHEVOLUME", "linc-cache")
 SETUPVERSION = os.environ.get("LINC_SETUPVERSION", "registry.lakedrops.com/docker/l3d/setup:latest")
 PROJECSTDIR = os.environ.get("LINC_PROJECTSDIR", "~/Projects")
+FORWARDUSER = is_trueish(os.environ.get("LINC_FORWARDUSER", str(sys.platform == "linux")))
+USERNAME = os.environ.get("LINC_USERNAME", getpass.getuser())
 
-
-def find_runtime():
+def find_runtime() -> str:
     for cmd in ("container", "docker", "podman"):
         if shutil.which(cmd):
             return cmd
@@ -60,6 +87,9 @@ def base_run_cmd(runtime):
 
     if runtime in ("docker", "podman"):
         cmd.append("--privileged")
+    
+    if runtime in ("container"):
+        cmd.append("--ssh")
 
     ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
     if ssh_auth_sock and os.path.exists(ssh_auth_sock):
@@ -75,7 +105,10 @@ def base_run_cmd(runtime):
             "-w", "/Projects"
         ]
 
-    cmd += ["-e", f"USER={os.getlogin()}"]
+    cmd += [
+        "-e", f"USER={USERNAME}",
+        "-v", os.path.expanduser("~") + ":/.hostuserhome"
+    ]
 
     if len(CACHEVOLUME) > 0:
         subprocess.run([runtime, "volume", "create", CACHEVOLUME], check=False)
@@ -88,13 +121,36 @@ def run_setup(runtime):
     print("Running linc setup inside container")
 
     setup_cmd = (
-        "apk add bash sudo tzdata ; "
+        "apk add bash tzdata ; "
         "cp /usr/share/zoneinfo/UTC /etc/localtime ; "
-        "touch /etc/timezone ; "
-        "until docker info >/dev/null 2>&1; do echo 'Waiting for Docker...'; sleep 2; done; "
-        "docker network create traefik-public ; "
-        "docker run -v /usr/local/bin:/setup --rm " + SETUPVERSION
+        "touch /etc/timezone /etc/sudoers ; "
+        "until docker info >/dev/null 2>&1; do printf '.'; sleep 1; done; "
+        "chmod 666 /var/run/docker.sock ; "
+        "docker network create traefik-public 2>/dev/null ; "
+        f"docker run -v /usr/local/bin:/setup --rm {SETUPVERSION} ; "
     )
+
+    if FORWARDUSER:
+        groupids = " ".join(str(gid) for gid in os.getgroups())
+        uid = os.getuid()
+        gid = os.getgid()
+
+        setup_cmd += (
+            f"echo {USERNAME}:x:{uid}:{gid}:l3d user:/home/flo:/bin/bash >> /etc/passwd ; "
+            f"echo '{USERNAME} ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers ; "
+
+            "sed "
+            f"-e 's/=\\$(id -g)/={gid}/g' "
+            f"-e 's/=\\$(id -G)/=\"{groupids}\"/g' "
+            f"-e 's/=\\$(id -u)/={uid}/g' "
+            "-e 's/=\\${HOME}/=\\/.hostuserhome/g' "
+            "-i.orig $(which l3d) ; "
+
+            "chmod -x $(which l3d).orig ; "
+            "diff -U0 $(which l3d).orig $(which l3d) ; "
+        )
+
+    setup_cmd += "grep 'registry.lakedrops.com' $(which l3d) ; "
 
     subprocess.check_call([
         runtime,
