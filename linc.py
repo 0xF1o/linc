@@ -53,11 +53,6 @@ def find_runtime() -> str:
 
 
 def run_commands_with_retry(commands, retries=2, delay=1):
-    """
-    Execute a list of commands.
-    Each command is retried `retries` times on failure.
-    After retries are exhausted, continue with the next command.
-    """
     for cmd in commands:
         attempt = 0
         while attempt <= retries:
@@ -89,7 +84,9 @@ def base_run_cmd(runtime):
     if runtime in ("docker", "podman"):
         cmd.append("--privileged")
     
-    ssh_auth_sock = os.path.realpath(os.environ.get("SSH_AUTH_SOCK"))
+    ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
+    if ssh_auth_sock:
+        ssh_auth_sock = os.path.realpath(ssh_auth_sock)
     if ssh_auth_sock and os.path.exists(ssh_auth_sock):
         cmd += [
              "-e", "SSH_AUTH_SOCK=/ssh-agent",
@@ -140,15 +137,20 @@ def run_setup(runtime):
 
     setup_cmd += "grep 'registry.lakedrops.com' $(which l3d) ; "
 
+    if DEBUG:
+        setup_cmd = "set -x ; " + setup_cmd
+
     subprocess.check_call([runtime, "exec", "-it", NAME, "/bin/sh", "-c", setup_cmd])
 
+def rm(runtime: str) -> subprocess.CompletedProcess:
+    p = subprocess.run([runtime, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
+    if(p.returncode): # try again - macos bug
+        p = subprocess.run([runtime, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
+    return p
 
 def start(runtime):
-    print(f"Starting {NAME} using {runtime}")
-
-    subprocess.run([runtime, "rm", "-f", NAME], check=False, capture_output=True)
-    subprocess.run([runtime, "rm", "-f", NAME], check=False, capture_output=True)
-
+    print(f"Starting {NAME} using {runtime}")    
+    rm(runtime)
     cmd = base_run_cmd(runtime) + [IMAGE]
     try:
         subprocess.run(cmd, check=True)
@@ -163,9 +165,8 @@ def start(runtime):
 
 def stop(runtime, clean_cache=False):
     print(f"Stopping {NAME}")
-    subprocess.run([runtime, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False)
-    subprocess.run([runtime, "rm", "-f", NAME], check=False)
-    
+    subprocess.run([runtime, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False, capture_output=not DEBUG)
+    rm(runtime)
     if clean_cache and len(CACHEVOLUME) > 0:
         print(f"Cleaning cache")
         subprocess.run([runtime, "volume", "rm", CACHEVOLUME], check=False)
@@ -188,20 +189,38 @@ def container_reset(runtime):
 
 
 def shell(runtime, cmdparam=["/bin/sh"], execparam=[]):
-    cmd = [runtime, "exec"] + execparam + ["-it", NAME]
-    proc = subprocess.run(cmd + cmdparam)
+    cmd = [runtime, "exec"] + execparam + ["-it", NAME] + cmdparam
+    if DEBUG:
+        print("shell> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
+    proc = subprocess.run(cmd)
+    if DEBUG and proc.returncode:
+        print(f"Failed run: {cmd}")
     sys.exit(proc.returncode)
 
 
 def l3d(runtime, args):
-    home_projects = os.path.expanduser(PROJECSTDIR).replace('\\','/')
+    projpath = os.path.expanduser(PROJECSTDIR).replace('\\','/')
+    homepath = os.path.expanduser("~").replace('\\','/')
     cwd = os.getcwd().replace('\\','/')
+    container_dir = ""
 
-    if not cwd.startswith(home_projects):
-        print(f"Error: You must run this command inside a project under {PROJECSTDIR}.", file=sys.stderr)
+    if cwd.startswith(homepath):
+        container_dir = "/.hostuserhome" + cwd[len(homepath):]
+
+    if cwd.startswith(projpath):
+        container_dir = "/Projects" + cwd[len(projpath):]
+
+    if DEBUG:
+        print(f"PROJECTSDIR: {PROJECSTDIR}")
+        print(f"projpath: {projpath}")
+        print(f"homepath: {homepath}")
+        print(f"cwd: {cwd}")
+
+    if not container_dir:
+        print(f"Error: Not insiede $HOME or LINC_PROJECTSDIR.", file=sys.stderr)
         sys.exit(1)
 
-    container_dir = "/Projects" + cwd[len(home_projects):]
+    container_dir = "/Projects" + cwd[len(projpath):]
 
     cmdstr = f"cd '{container_dir}' && l3d"
     if args:
