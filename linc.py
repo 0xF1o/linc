@@ -45,6 +45,11 @@ FORWARDUSERID = is_trueish(os.environ.get("LINC_FORWARDUSERID", str(sys.platform
 DEBUG = is_trueish(os.environ.get("LINC_DEBUG", "0"))
 USERNAME = os.environ.get("LINC_USERNAME", getpass.getuser())
 
+def debug(*args, **kwargs):
+    if DEBUG:
+        print(*args, **kwargs)
+
+
 def find_runtime() -> str:
     for cmd in ("container", "docker", "podman"):
         if shutil.which(cmd):
@@ -58,7 +63,7 @@ def run_commands_with_retry(commands, retries=2, delay=1, timeout=5):
         while attempt <= retries:
             try:
                 if DEBUG:
-                    print(f"Running: {' '.join(cmd)} (attempt {attempt + 1})")
+                    debug(f"Running: {cmd} (attempt {attempt + 1})")
                 else:
                     print(".")
                 subprocess.run(cmd, check=True, timeout=timeout, capture_output=not DEBUG)
@@ -76,14 +81,7 @@ def run_commands_with_retry(commands, retries=2, delay=1, timeout=5):
 
 
 def base_run_cmd(runtime):
-    cmd = [
-        runtime,
-        "run",
-        "-d",
-        "--name", NAME,
-        "--platform", PLATFORM,
-        "-p", PORT
-    ]
+    cmd = [runtime, "run", "-d", "--name", NAME, "--platform", PLATFORM, "-p", PORT]
 
     if runtime in ("docker", "podman"):
         cmd.append("--privileged")
@@ -136,6 +134,7 @@ def run_setup(runtime):
     if FORWARDUSERID:
         setup_cmd += (
             f"echo {USERNAME}:x:{os.getuid()}:{os.getgid()}:l3d user:/home/flo:/bin/bash >> /etc/passwd ; "
+            f"echo 'root ALL=(ALL:ALL) NOPASSWD: ALL' >> /etc/sudoers ; "
             f"echo '{USERNAME} ALL=(ALL:ALL) NOPASSWD: ALL' >> /etc/sudoers ; "
         )
 
@@ -160,11 +159,17 @@ def start(runtime):
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Failed to start container '{NAME}' using {runtime}.", file=sys.stderr)
-        if DEBUG:
-            print("> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
+        debug("> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
         sys.exit(e.returncode)
 
     run_setup(runtime)
+
+def pull(runtime: str):
+    cmd = [runtime, "image", "pull", "--platform", PLATFORM, IMAGE]
+    p = subprocess.run(cmd, check=False, capture_output=not DEBUG)
+    if(p.returncode):
+        print(f"Warning: pull failed")
+        debug(cmd)
 
 
 def stop(runtime, clean_cache=False):
@@ -195,11 +200,10 @@ def container_reset(runtime):
 
 def shell(runtime, cmdparam=["/bin/sh"], execparam=[]):
     cmd = [runtime, "exec"] + execparam + ["-it", NAME] + cmdparam
-    if DEBUG:
-        print("shell> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
+    debug("shell> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
     proc = subprocess.run(cmd)
     if DEBUG and proc.returncode:
-        print(f"Failed run: {cmd}")
+        debug(f"Failed run: {cmd}")
     sys.exit(proc.returncode)
 
 
@@ -216,11 +220,11 @@ def l3d(runtime, args):
         container_dir = "/Projects" + cwd[len(projpath):]
 
     if DEBUG:
-        print(f"PROJECTSDIR: {PROJECSTDIR}")
-        print(f"projpath: {projpath}")
-        print(f"homepath: {homepath}")
-        print(f"cwd: {cwd}")
-        print(f"container_dir: {container_dir}")
+        debug(f"PROJECTSDIR: {PROJECSTDIR}")
+        debug(f"projpath: {projpath}")
+        debug(f"homepath: {homepath}")
+        debug(f"cwd: {cwd}")
+        debug(f"container_dir: {container_dir}")
 
     if not container_dir:
         print(f"Error: Not insiede $HOME or LINC_PROJECTSDIR.", file=sys.stderr)
@@ -239,16 +243,11 @@ def l3d(runtime, args):
     shell(runtime, cmdparam, execparam)
         
 def main():
-    runtime = os.environ.get("LINC_RUNTIME", find_runtime())
-    if not runtime:
-        print("Error: No container runtime found", file=sys.stderr)
-        sys.exit(1)
-
     help_description = (
         "Manage the linc environment.\n\n"
         "Commands:\n"
         "  start-l3d          [Re]Start linc, run setup and start l3d.\n"
-        "  up, start          [Re]Start linc and run initial setup.\n"
+        "  up, start [--pull] [Re]Start linc and run initial setup.\n"
         "  down, stop [--cc]  Remove linc [and purge cache].\n"
         "  l3d [args...]      Run l3d inside the container (for project commands). Any following args are forwarded to l3d.\n\n"
         "Tools:\n"
@@ -265,8 +264,12 @@ def main():
 
     sub.add_parser("start-l3d")
     sub.add_parser("up-l3d")
-    sub.add_parser("up")
-    sub.add_parser("start")
+
+    up = sub.add_parser("up")
+    up.add_argument("--pull", action="store_true")
+
+    st = sub.add_parser("start")
+    st.add_argument("--pull", action="store_true")
 
     down = sub.add_parser("down")
     down.add_argument("--cc", action="store_true")
@@ -283,7 +286,15 @@ def main():
 
     args = parser.parse_args()
 
+    runtime = os.environ.get("LINC_RUNTIME", find_runtime())
+    if not runtime:
+        print("Error: No container runtime found", file=sys.stderr)
+        sys.exit(1)
+
+
     if args.command in ("up", "start"):
+        if getattr(args, "pull", False):
+            pull(runtime)
         start(runtime)
     elif args.command in ("start-l3d", "up-l3d"):
         start(runtime)
