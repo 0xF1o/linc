@@ -52,21 +52,25 @@ def find_runtime() -> str:
     return None
 
 
-def run_commands_with_retry(commands, retries=2, delay=1):
+def run_commands_with_retry(commands, retries=2, delay=1, timeout=5):
     for cmd in commands:
         attempt = 0
         while attempt <= retries:
             try:
-                print(f"Running: {' '.join(cmd)} (attempt {attempt + 1})")
-                subprocess.run(cmd, check=True)
+                if DEBUG:
+                    print(f"Running: {' '.join(cmd)} (attempt {attempt + 1})")
+                else:
+                    print(".")
+                subprocess.run(cmd, check=True, timeout=timeout, capture_output=not DEBUG)
                 break
-            except subprocess.CalledProcessError as e:
+            except Exception as e:
                 attempt += 1
                 if attempt > retries:
-                    print(
-                        f"Command failed after {retries + 1} attempts, continuing: {' '.join(cmd)}",
-                        file=sys.stderr,
-                    )
+                    if DEBUG:
+                        print(f"Command failed after {retries + 1} attempts, continuing: {cmd}", file=sys.stderr)
+                        print(f"{e}", file=sys.stderr)
+                    else:
+                        print("!")
                 else:
                     time.sleep(delay)
 
@@ -182,6 +186,7 @@ def container_reset(runtime):
     commands = [
         [runtime, "system", "stop"],
         [runtime, "system", "start"],
+        [runtime, "stop", "--all"],
         [runtime, "rm", "-f", NAME],
     ]
 
