@@ -169,7 +169,7 @@ def stop(runtime, clean_cache=False):
     rm(runtime)
     if clean_cache and len(CACHEVOLUME) > 0:
         print(f"Cleaning cache")
-        subprocess.run([runtime, "volume", "rm", CACHEVOLUME], check=False)
+        subprocess.run([runtime, "volume", "rm", CACHEVOLUME], check=False, capture_output=not DEBUG)
 
 
 def container_reset(runtime):
