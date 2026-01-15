@@ -215,12 +215,11 @@ def l3d(runtime, args):
         print(f"projpath: {projpath}")
         print(f"homepath: {homepath}")
         print(f"cwd: {cwd}")
+        print(f"container_dir: {container_dir}")
 
     if not container_dir:
         print(f"Error: Not insiede $HOME or LINC_PROJECTSDIR.", file=sys.stderr)
         sys.exit(1)
-
-    container_dir = "/Projects" + cwd[len(projpath):]
 
     cmdstr = f"cd '{container_dir}' && l3d"
     if args:
