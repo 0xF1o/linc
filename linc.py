@@ -11,8 +11,12 @@ import shlex
 from pathlib import Path
 from typing import Iterable
 
+def is_trueish(s: str) -> bool:
+    trueish = ['true', 'yes', 'y', '1'] 
+    return s.lower() in trueish
+
 def load_env(filename: str, prefixes: Iterable[str]) -> None:
-    for path in reversed([Path.cwd(), *Path.cwd().parents]):
+    for path in reversed([Path.cwd(), *Path.cwd().parents, Path.home()]):
         env_file = path / filename
         if env_file.exists():
             load_env_file(env_file, prefixes)
@@ -29,10 +33,6 @@ def load_env_file(path: Path, prefixes: Iterable[str]) -> None:
                 os.environ[key] = shlex.split(value)[0]
 
 load_env(".env", ["LINC_"])
-
-def is_trueish(s: str) -> bool:
-    trueish = ['true', 'yes', 'y', '1'] 
-    return s.lower() in trueish
 
 NAME = os.environ.get("LINC_NAME", "linc-shell")
 IMAGE = os.environ.get("LINC_IMAGE", "docker:29-dind")
