@@ -253,7 +253,7 @@ def main():
         "  l3d [args...]      Run l3d inside the container (for project commands). Any following args are forwarded to l3d.\n\n"
         "Tools:\n"
         "  shell              Open an interactive root shell inside the running container.\n"        
-        "  container-reset    Restart container system and remove linc container (only when LINC_RUNTIME=container).\n\n"
+        "  container-reset    Restart container system and stop/remove existing linc container (only when LINC_RUNTIME=container).\n\n"
     )
 
     parser = argparse.ArgumentParser(
