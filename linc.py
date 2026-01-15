@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Iterable
 
 def is_trueish(s: str) -> bool:
-    trueish = ['true', 'yes', 'y', '1'] 
+    trueish = ['true', 'yes', 'y', '1']
     return s.lower() in trueish
 
 def load_env(filename: str, prefixes: Iterable[str]) -> None:
@@ -242,6 +242,40 @@ def l3d(runtime, args):
 
     shell(runtime, cmdparam, execparam)
         
+def show_env_vars(runtime):
+    """Display current LINC_ environment variables and their values."""
+    env_vars = {
+        "LINC_NAME": (NAME, "Container name"),
+        "LINC_IMAGE": (IMAGE, "Container image to run"),
+        "LINC_PLATFORM": (PLATFORM, "Container platform (e.g. linux/amd64)"),
+        "LINC_PORT": (PORT, "Port mapping for container"),
+        "LINC_CACHEVOLUME": (CACHEVOLUME, "Docker volume for caching (empty to disable)"),
+        "LINC_SETUPVERSION": (SETUPVERSION, "Setup image version"),
+        "LINC_PROJECTSDIR": (PROJECSTDIR, "Host projects directory"),
+        "LINC_FORWARDUSERID": (str(FORWARDUSERID), "Forward host user ID into container"),
+        "LINC_DEBUG": (str(DEBUG), "Enable debug output"),
+        "LINC_USERNAME": (USERNAME, "Username inside container"),
+        "LINC_RUNTIME": (runtime, "Container runtime (docker/podman/container)"),
+    }
+    
+    print("\nLINC Environment Variables:")
+    print("=" * 70)
+    for var, (value, description) in sorted(env_vars.items()):
+        print(f"\n{var}")
+        print(f"  Current value: {value}")
+        print(f"  Description:   {description}")
+    print("\n" + "=" * 70)
+    print("\nConfiguration via .env:")
+    print("  LINC loads environment variables from .env files in the current")
+    print("  directory or any parent directory or the home folder.")
+    print("  Only variables starting with 'LINC_' are loaded.")
+    print("\n  Example .env file:")
+    print("    # ~/.env or project/.env")
+    print("    LINC_PROJECTSDIR=D:/work")
+    print("    LINC_IMAGE=docker:25-dind")
+    print("    LINC_DEBUG=1")
+    print()
+
 def main():
     help_description = (
         "Manage the linc environment.\n\n"
@@ -251,8 +285,11 @@ def main():
         "  down, stop [--cc]  Remove linc [and purge cache].\n"
         "  l3d [args...]      Run l3d inside the container (for project commands). Any following args are forwarded to l3d.\n\n"
         "Tools:\n"
-        "  shell              Open an interactive root shell inside the running container.\n"        
+        "  shell              Open an interactive root shell inside the running container.\n"
+        "  env                Display current LINC_* environment variables and their values.\n"
         "  container-reset    Restart container system and stop/remove existing linc container (only when LINC_RUNTIME=container).\n\n"
+        "Configuration:\n"
+        "  Environment variables are loaded from .env files. See 'linc env' for details.\n"
     )
 
     parser = argparse.ArgumentParser(
@@ -282,6 +319,8 @@ def main():
     l3d_cmd = sub.add_parser("l3d")
     l3d_cmd.add_argument("cmd_args", nargs=argparse.REMAINDER)
 
+    sub.add_parser("env")
+
     sub.add_parser("container-reset")
 
     args = parser.parse_args()
@@ -290,7 +329,6 @@ def main():
     if not runtime:
         print("Error: No container runtime found", file=sys.stderr)
         sys.exit(1)
-
 
     if args.command in ("up", "start"):
         if getattr(args, "pull", False):
@@ -303,11 +341,12 @@ def main():
         stop(runtime, clean_cache=getattr(args, "cc", False))
     elif args.command == "shell":
         shell(runtime)
+    elif args.command == "env":
+        show_env_vars(runtime)
     elif args.command == "l3d":
         l3d(runtime, args.cmd_args)
     elif args.command == "container-reset":
         container_reset(runtime)
-
 
 
 if __name__ == "__main__":
