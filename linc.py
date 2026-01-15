@@ -247,6 +247,7 @@ def main():
     help_description = (
         "Manage the linc environment.\n\n"
         "Commands:\n"
+        "  start-l3d          [Re]Start linc, run setup and start l3d.\n"
         "  up, start          [Re]Start linc and run initial setup.\n"
         "  down, stop [--cc]  Remove linc [and purge cache].\n"
         "  l3d [args...]      Run l3d inside the container (for project commands). Any following args are forwarded to l3d.\n\n"
@@ -262,6 +263,8 @@ def main():
 
     sub = parser.add_subparsers(dest="command", required=True)
 
+    sub.add_parser("start-l3d")
+    sub.add_parser("up-l3d")
     sub.add_parser("up")
     sub.add_parser("start")
 
@@ -282,6 +285,9 @@ def main():
 
     if args.command in ("up", "start"):
         start(runtime)
+    elif args.command in ("start-l3d", "up-l3d"):
+        start(runtime)
+        l3d(runtime, [])
     elif args.command in ("down", "stop"):
         stop(runtime, clean_cache=getattr(args, "cc", False))
     elif args.command == "shell":
