@@ -30,7 +30,7 @@ def load_env_file(path: Path, prefixes: Iterable[str]) -> None:
 
             if any(line.startswith(pfx) for pfx in prefixes):
                 key, value = line.split("=", 1)
-                os.environ[key] = shlex.split(value)[0]
+                os.environ[key] = " ".join(shlex.split(value))
 
 load_env(".env", ["LINC_"])
 
@@ -280,14 +280,14 @@ def show_env_vars(runtime):
     print("    LINC_PROJECTSDIR=D:/work")
     print("    LINC_IMAGE=docker:25-dind")
     print("    LINC_DEBUG=1")
-    print("    LINC_RUNARGS=--cpu 8")
+    print('    LINC_RUNARGS="--cpu 8 --memory 4G"')
     print()
 
 def main():
     help_description = (
         "Manage the linc environment.\n\n"
         "Commands:\n"
-        "  start-l3d          [Re]Start linc, run setup and start l3d.\n"
+        "  start-l3d          [Re]Start linc, pull, run setup and start l3d.\n"
         "  up, start [--pull] [Re]Start linc and run initial setup.\n"
         "  down, stop [--cc]  Remove linc [and purge cache].\n"
         "  l3d [args...]      Run l3d inside the container (for project commands). Any following args are forwarded to l3d.\n\n"
@@ -342,6 +342,7 @@ def main():
             pull(runtime)
         start(runtime)
     elif args.command in ("start-l3d", "up-l3d"):
+        pull(runtime)
         start(runtime)
         l3d(runtime, [])
     elif args.command in ("down", "stop"):
