@@ -44,6 +44,7 @@ PROJECSTDIR = os.environ.get("LINC_PROJECTSDIR", "~/Projects")
 FORWARDUSERID = is_trueish(os.environ.get("LINC_FORWARDUSERID", str(sys.platform == "linux")))
 DEBUG = is_trueish(os.environ.get("LINC_DEBUG", "0"))
 USERNAME = os.environ.get("LINC_USERNAME", getpass.getuser())
+RUNARGS = os.environ.get("LINC_RUNARGS","")
 
 def debug(*args, **kwargs):
     if DEBUG:
@@ -82,6 +83,9 @@ def run_commands_with_retry(commands, retries=2, delay=1, timeout=5):
 
 def base_run_cmd(runtime):
     cmd = [runtime, "run", "-d", "--name", NAME, "--platform", PLATFORM, "-p", PORT]
+
+    if RUNARGS:
+        cmd += shlex.split(RUNARGS)
 
     if runtime in ("docker", "podman"):
         cmd.append("--privileged")
@@ -152,7 +156,8 @@ def rm(runtime: str) -> subprocess.CompletedProcess:
     return p
 
 def start(runtime):
-    print(f"Starting {NAME} using {runtime}")    
+    print(f"Starting {NAME} using {runtime}")
+
     rm(runtime)
     cmd = base_run_cmd(runtime) + [IMAGE]
     try:
@@ -256,6 +261,7 @@ def show_env_vars(runtime):
         "LINC_DEBUG": (str(DEBUG), "Enable debug output"),
         "LINC_USERNAME": (USERNAME, "Username inside container"),
         "LINC_RUNTIME": (runtime, "Container runtime (docker/podman/container)"),
+        "LINC_RUNARGS": (RUNARGS, f"pass arguments to `{runtime} run`"),
     }
     
     print("\nLINC Environment Variables:")
@@ -274,6 +280,7 @@ def show_env_vars(runtime):
     print("    LINC_PROJECTSDIR=D:/work")
     print("    LINC_IMAGE=docker:25-dind")
     print("    LINC_DEBUG=1")
+    print("    LINC_RUNARGS=--cpu 8")
     print()
 
 def main():
