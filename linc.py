@@ -41,7 +41,7 @@ def find_runtime() -> str:
                 return cmd
         return None
         
-    os.environ.get("LINC_RUNTIME", _find())
+    return os.environ.get("LINC_RUNTIME", _find())
 
 NAME = os.environ.get("LINC_NAME", "linc-shell")
 IMAGE = os.environ.get("LINC_IMAGE", "docker:29-dind")
