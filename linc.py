@@ -44,7 +44,7 @@ def find_runtime() -> str:
     return os.environ.get("LINC_RUNTIME", _find())
 
 NAME = os.environ.get("LINC_NAME", "linc-shell")
-IMAGE = os.environ.get("LINC_IMAGE", "docker:29-dind")
+IMAGE = os.environ.get("LINC_IMAGE", "ghcr.io/0xf1o/linc-dind:latest")
 PLATFORM = os.environ.get("LINC_PLATFORM", "linux/amd64")
 PORT = os.environ.get("LINC_PORT", "8000:8000")
 CACHEVOLUME = os.environ.get("LINC_CACHEVOLUME", "linc-cache")
@@ -129,7 +129,6 @@ def run_setup(runtime):
     print("Running linc setup inside container")
 
     setup_cmd = (
-        "apk add bash tzdata setpriv ; "
         "cp /usr/share/zoneinfo/UTC /etc/localtime ; "
         "touch /etc/timezone /etc/sudoers ; "
         "until docker info >/dev/null 2>&1; do printf '.'; sleep 1; done; "
