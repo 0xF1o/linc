@@ -34,6 +34,15 @@ def load_env_file(path: Path, prefixes: Iterable[str]) -> None:
 
 load_env(".env", ["LINC_"])
 
+def find_runtime() -> str:
+    def _find() -> str:
+        for cmd in ("container", "docker", "podman"):
+            if shutil.which(cmd):
+                return cmd
+        return None
+        
+    os.environ.get("LINC_RUNTIME", _find())
+
 NAME = os.environ.get("LINC_NAME", "linc-shell")
 IMAGE = os.environ.get("LINC_IMAGE", "docker:29-dind")
 PLATFORM = os.environ.get("LINC_PLATFORM", "linux/amd64")
@@ -42,6 +51,7 @@ CACHEVOLUME = os.environ.get("LINC_CACHEVOLUME", "linc-cache")
 SETUPVERSION = os.environ.get("LINC_SETUPVERSION", "registry.lakedrops.com/docker/l3d/setup:latest")
 PROJECSTDIR = os.environ.get("LINC_PROJECTSDIR", "~/Projects")
 FORWARDUSERID = is_trueish(os.environ.get("LINC_FORWARDUSERID", str(sys.platform == "linux")))
+FORWARDHOMEDIR = is_trueish(os.environ.get("LINC_FORWARDHOMEDIR", str(not (sys.platform == "win32") and find_runtime() == "docker")))
 DEBUG = is_trueish(os.environ.get("LINC_DEBUG", "0"))
 USERNAME = os.environ.get("LINC_USERNAME", getpass.getuser())
 RUNARGS = os.environ.get("LINC_RUNARGS","")
@@ -49,13 +59,6 @@ RUNARGS = os.environ.get("LINC_RUNARGS","")
 def debug(*args, **kwargs):
     if DEBUG:
         print(*args, **kwargs)
-
-
-def find_runtime() -> str:
-    for cmd in ("container", "docker", "podman"):
-        if shutil.which(cmd):
-            return cmd
-    return None
 
 
 def run_commands_with_retry(commands, retries=2, delay=1, timeout=5):
@@ -239,7 +242,7 @@ def l3d(runtime, args):
     if args:
         cmdstr += " " + " ".join(args)
     cmdparam = ["/bin/sh", "-c", cmdstr]
-    execparam = ["-e", "HOME=/.hostuserhome"]
+    execparam = ["-e", "HOME=/.hostuserhome"] if FORWARDHOMEDIR else []
 
     if FORWARDUSERID:
         groupids = ",".join(str(gid) for gid in os.getgroups())
@@ -258,6 +261,7 @@ def show_env_vars(runtime):
         "LINC_SETUPVERSION": (SETUPVERSION, "Setup image version"),
         "LINC_PROJECTSDIR": (PROJECSTDIR, "Host projects directory"),
         "LINC_FORWARDUSERID": (str(FORWARDUSERID), "Forward host user ID into container"),
+        "LINC_FORWARDHOMEDIR": (str(FORWARDHOMEDIR), "Forward user home directory into container"),
         "LINC_DEBUG": (str(DEBUG), "Enable debug output"),
         "LINC_USERNAME": (USERNAME, "Username inside container"),
         "LINC_RUNTIME": (runtime, "Container runtime (docker/podman/container)"),
@@ -332,7 +336,7 @@ def main():
 
     args = parser.parse_args()
 
-    runtime = os.environ.get("LINC_RUNTIME", find_runtime())
+    runtime = find_runtime()
     if not runtime:
         print("Error: No container runtime found", file=sys.stderr)
         sys.exit(1)
