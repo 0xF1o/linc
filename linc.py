@@ -163,10 +163,11 @@ def start(runtime):
     rm(runtime)
     cmd = base_run_cmd(runtime) + [IMAGE]
     try:
+        debug("> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Failed to start container '{NAME}' using {runtime}.", file=sys.stderr)
-        debug("> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
+        print(cmd, file=sys.stderr)
         sys.exit(e.returncode)
 
     run_setup(runtime)
