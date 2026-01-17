@@ -128,14 +128,17 @@ def base_run_cmd():
     cmd += [
         "-e", f"USER={USERNAME}",
         "-v", os.path.expanduser("~") + ":/.hostuserhome"
-    ]
+    ]                
 
     if len(CACHEVOLUME) > 0:
-        subprocess.run([RUNTIME, "volume", "create", CACHEVOLUME], check=False)
+        subprocess.run([RUNTIME, "volume", "create", CACHEVOLUME], check=False, capture_output=not DEBUG)
+        subprocess.run([RUNTIME, "volume", "create", CACHEVOLUME + "-traefik"], check=False, capture_output=not DEBUG)
+        subprocess.run([RUNTIME, "volume", "create", CACHEVOLUME + "-composer"], check=False, capture_output=not DEBUG)
         cmd += ["-v", f"{CACHEVOLUME}:/var/lib/docker"]
+        cmd += ["-v", f"{CACHEVOLUME}-traefik:/.hostuserhome/.traefik"]
+        cmd += ["-v", f"{CACHEVOLUME}-composer:/.hostuserhome/.composer/cache"]
 
     return cmd
-
 
 def run_setup():
     print("Running linc setup inside container")
@@ -208,6 +211,9 @@ def stop(clean_cache=False):
     if clean_cache and len(CACHEVOLUME) > 0:
         print(f"Cleaning cache")
         subprocess.run([RUNTIME, "volume", "rm", CACHEVOLUME], check=False, capture_output=not DEBUG)
+        subprocess.run([RUNTIME, "volume", "rm", CACHEVOLUME + "-traefik"], check=False, capture_output=not DEBUG)
+        subprocess.run([RUNTIME, "volume", "rm", CACHEVOLUME + "-composer"], check=False, capture_output=not DEBUG)
+
 
 def dind_kill() -> subprocess.CompletedProcess:
     return subprocess.run([RUNTIME, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False, capture_output=not DEBUG)
