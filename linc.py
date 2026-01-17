@@ -61,7 +61,7 @@ def debug(*args, **kwargs):
         print(*args, **kwargs)
 
 
-def run_commands_with_retry(commands, retries=2, delay=1, timeout=5):
+def run_commands_with_retry(commands, retries=3, delay=0.5, timeout=5):
     for cmd in commands:
         attempt = 0
         while attempt <= retries:
@@ -69,8 +69,9 @@ def run_commands_with_retry(commands, retries=2, delay=1, timeout=5):
                 if DEBUG:
                     debug(f"Running: {cmd} (attempt {attempt + 1})")
                 else:
-                    print(".")
+                    print(".", end="", flush=True)
                 subprocess.run(cmd, check=True, timeout=timeout, capture_output=not DEBUG)
+                print(".", end="", flush=True)
                 break
             except Exception as e:
                 attempt += 1
@@ -79,7 +80,7 @@ def run_commands_with_retry(commands, retries=2, delay=1, timeout=5):
                         print(f"Command failed after {retries + 1} attempts, continuing: {cmd}", file=sys.stderr)
                         print(f"{e}", file=sys.stderr)
                     else:
-                        print("!")
+                        print("!", end="", flush=True)
                 else:
                     time.sleep(delay)
 
@@ -159,7 +160,7 @@ def rm(runtime: str) -> subprocess.CompletedProcess:
 
 def start(runtime):
     print(f"Starting {NAME} using {runtime}")
-
+    dind_kill(runtime)
     rm(runtime)
     cmd = base_run_cmd(runtime) + [IMAGE]
     try:
@@ -179,15 +180,27 @@ def pull(runtime: str):
         print(f"Warning: pull failed")
         debug(cmd)
 
+def container_system_start(runtime: str):
+    if runtime not in ("container"):
+        return
+    cmd = [runtime, "system", "start"]
+    p = subprocess.run(cmd, check=False)
+    if(p.returncode):
+        print(f"Error: container system error", file=sys.stderr)
+        debug(cmd)
+        sys.exit(p.returncode)
+
 
 def stop(runtime, clean_cache=False):
     print(f"Stopping {NAME}")
-    subprocess.run([runtime, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False, capture_output=not DEBUG)
+    dind_kill(runtime)
     rm(runtime)
     if clean_cache and len(CACHEVOLUME) > 0:
         print(f"Cleaning cache")
         subprocess.run([runtime, "volume", "rm", CACHEVOLUME], check=False, capture_output=not DEBUG)
 
+def dind_kill(runtime: str) -> subprocess.CompletedProcess:
+    return subprocess.run([runtime, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False, capture_output=not DEBUG)
 
 def container_reset(runtime):
     if runtime != "container":
@@ -199,11 +212,21 @@ def container_reset(runtime):
     commands = [
         [runtime, "system", "stop"],
         [runtime, "system", "start"],
+    ]
+
+    run_commands_with_retry(commands)
+
+    stop(runtime)
+
+    commands = [
         [runtime, "stop", "--all"],
         [runtime, "rm", "-f", NAME],
     ]
 
     run_commands_with_retry(commands)
+    print(".")
+    container_system_start(runtime)
+    print("Looking good!")
 
 
 def shell(runtime, cmdparam=["/bin/sh"], execparam=[]):
@@ -347,6 +370,7 @@ def main():
         start(runtime)
     elif args.command in ("start-l3d", "up-l3d"):
         pull(runtime)
+        container_system_start(runtime)
         start(runtime)
         l3d(runtime, [])
     elif args.command in ("down", "stop"):
