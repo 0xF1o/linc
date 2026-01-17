@@ -8,6 +8,7 @@ import sys
 import time
 import getpass
 import shlex
+import base64
 from pathlib import Path
 from typing import Iterable
 
@@ -59,6 +60,10 @@ RUNARGS = os.environ.get("LINC_RUNARGS","")
 def debug(*args, **kwargs):
     if DEBUG:
         print(*args, **kwargs)
+
+def linc_source() -> str:
+    with open(__file__, 'rb') as file:
+        return base64.b64encode(file.read()).decode('utf-8')
 
 
 def run_commands_with_retry(commands, retries=3, delay=0.5, timeout=5):
@@ -235,10 +240,10 @@ def shell(runtime, cmdparam=["/bin/sh"], execparam=[]):
     proc = subprocess.run(cmd)
     if DEBUG and proc.returncode:
         debug(f"Failed run: {cmd}")
-    sys.exit(proc.returncode)
+        sys.exit(proc.returncode)
 
 
-def l3d(runtime, args):
+def l3d(runtime: str, inject: bool=False, l3darg: str=""):
     projpath = os.path.expanduser(PROJECSTDIR).replace('\\','/')
     homepath = os.path.expanduser("~").replace('\\','/')
     cwd = os.getcwd().replace('\\','/')
@@ -261,17 +266,33 @@ def l3d(runtime, args):
         print(f"Error: Not insiede $HOME or LINC_PROJECTSDIR.", file=sys.stderr)
         sys.exit(1)
 
-    cmdstr = f"cd '{container_dir}' && l3d"
-    if args:
-        cmdstr += " " + " ".join(args)
-    cmdparam = ["/bin/sh", "-c", cmdstr]
-    execparam = ["-e", "HOME=/.hostuserhome"] if FORWARDHOMEDIR else []
+    def shell_exec(cmdstr):
+        cmdparam = ["/bin/sh", "-c", cmdstr]
+        execparam = ["-e", "HOME=/.hostuserhome"] if FORWARDHOMEDIR else []
 
-    if FORWARDUSERID:
-        groupids = ",".join(str(gid) for gid in os.getgroups())
-        cmdparam = ["/bin/setpriv", "--reuid", f"{os.getuid()}", "--regid", f"{os.getgid()}", "--groups", f"{groupids}"] + cmdparam
+        if FORWARDUSERID:
+            groupids = ",".join(str(gid) for gid in os.getgroups())
+            cmdparam = ["/bin/setpriv", "--reuid", f"{os.getuid()}", "--regid", f"{os.getgid()}", "--groups", f"{groupids}"] + cmdparam
 
-    shell(runtime, cmdparam, execparam)
+        shell(runtime, cmdparam, execparam)
+
+    def inject_linc():
+        def latest_container_id():
+            return subprocess.run([runtime, "exec", NAME, "docker", "ps", "--no-trunc", "-q", "--filter", "status=running", "--latest"], capture_output=True, check=True, text=True).stdout.strip()
+        def write_code_to_container(container_id, base64_source, dest_path="/usr/local/bin/ao"):
+            subprocess.run([runtime, "exec", NAME, "docker", "exec", container_id, "sh", "-c", f"echo {base64_source} | base64 -d > {dest_path}"], check=True)
+            subprocess.run([runtime, "exec", NAME, "docker", "exec", container_id, "chmod", "+x", dest_path], check=True)
+        new_id = latest_container_id()
+        debug(f"new container id={new_id}")
+        source = linc_source()
+        write_code_to_container(new_id, source)            
+    if inject:
+        shell_exec(f"cd '{container_dir}' && l3d 'uname -snr'")
+        inject_linc()
+        shell_exec(f"cd '{container_dir}' && l3d")
+    else:
+        shell_exec(f"cd '{container_dir}' && l3d {l3darg}")
+        
         
 def show_env_vars(runtime):
     """Display current LINC_ environment variables and their values."""
@@ -316,9 +337,9 @@ def main():
         "Commands:\n"
         "  start-l3d          [Re]Start linc, pull, run setup and start l3d.\n"
         "  up, start [--pull] [Re]Start linc and run initial setup.\n"
-        "  down, stop [--cc]  Remove linc [and purge cache].\n"
-        "  l3d [args...]      Run l3d inside the container (for project commands). Any following args are forwarded to l3d.\n\n"
+        "  down, stop [--cc]  Remove linc [and purge cache].\n\n"
         "Tools:\n"
+        "  l3d [reset|...]    Run l3d inside linc (for project commands). Arg is forwarded to l3d.\n"
         "  shell              Open an interactive root shell inside the running container.\n"
         "  env                Display current LINC_* environment variables and their values.\n"
         "  container-reset    Restart container system and stop/remove existing linc container (only when LINC_RUNTIME=container).\n\n"
@@ -372,18 +393,58 @@ def main():
         pull(runtime)
         container_system_start(runtime)
         start(runtime)
-        l3d(runtime, [])
-    elif args.command in ("down", "stop"):
-        stop(runtime, clean_cache=getattr(args, "cc", False))
-    elif args.command == "shell":
-        shell(runtime)
-    elif args.command == "env":
-        show_env_vars(runtime)
-    elif args.command == "l3d":
-        l3d(runtime, args.cmd_args)
-    elif args.command == "container-reset":
-        container_reset(runtime)
+        l3d(runtime, inject=True)
+    elif args.command in ("down", "stop"): stop(runtime, clean_cache=getattr(args, "cc", False))
+    elif args.command == "shell": shell(runtime)
+    elif args.command == "env": show_env_vars(runtime)
+    elif args.command == "l3d": l3d(runtime, l3darg=" ".join(args.cmd_args))
+    elif args.command == "container-reset": container_reset(runtime)
 
+def ao_clean():
+    cmd = "git clean -dx && rm -rf web/ vendor/ && git reset --hard"
+    debug(cmd); subprocess.run(["sh", "-c", cmd], check=False)
+def ao_build(args):
+    cmd = """
+        grep -i 'apple\\|arm' /proc/cpuinfo >/dev/null && export DOCKER_DEFAULT_PLATFORM=linux/arm64
+        grep -i 'apple\\|arm' /proc/cpuinfo >/dev/null && echo -e 'services:\\n  pma:\\n    platform: linux/amd64' > docker-compose.override.yml
+        composer install -n
+        docker rm -f traefik ; cd $HOME/.traefik/ && COMPOSE_PROJECT_NAME="" docker compose up -d ; cd -
+        a d4d up
+    """
+    if(args.clean): ao_clean()
+    debug(cmd); subprocess.run(["sh", "-c", cmd], check=False)
 
-if __name__ == "__main__":
-    main()
+def ao_arch(args):
+    archs=["linux/amd64", "linux/arm64"]
+    for arch in archs:
+        works = _testarch(arch)
+        print(f"{arch}: {works}")
+
+def _testarch(arch: str) -> bool:
+    cmd = [find_runtime(), "run", "--platform", arch, "--rm", "alpine", "sh", "-c", "echo 'works'"]
+    debug(cmd)
+    p = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    return "works" == p.stdout.strip()
+
+def ao():
+    parser = argparse.ArgumentParser(description="[a:o]")
+    sub = parser.add_subparsers(dest="command", required=True)
+    
+    build = sub.add_parser("build", help="build the project")
+    build.add_argument("--clean", action="store_true", help="use git to clean before build")
+    build.set_defaults(func=ao_build)
+
+    clean = sub.add_parser("clean", help="clean with git")
+    clean.set_defaults(func=ao_clean)
+
+    arch = sub.add_parser("arch", help="test architectures")
+    arch.set_defaults(func=ao_arch)
+
+    args = parser.parse_args()
+    args.func(args)
+
+if __name__ == "__main__":   
+    if len(sys.argv) > 1 and sys.argv[1] == "ao":  sys.argv = sys.argv[1:]
+    script_name = os.path.basename(sys.argv[0])   
+    if script_name in ("ao", "ao.py"): ao()
+    else: main()
