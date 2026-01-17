@@ -56,10 +56,21 @@ FORWARDHOMEDIR = is_trueish(os.environ.get("LINC_FORWARDHOMEDIR", "1"))
 DEBUG = is_trueish(os.environ.get("LINC_DEBUG", "0"))
 USERNAME = os.environ.get("LINC_USERNAME", getpass.getuser())
 RUNARGS = os.environ.get("LINC_RUNARGS","")
+RUNTIME = find_runtime()
+
+class Con:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    UNDERLINE = "\033[4m"
+    BRIGHT_RED = "\033[91m"
+    BRIGHT_GREEN = "\033[92m"
 
 def debug(*args, **kwargs):
     if DEBUG:
+        print(Con.DIM, end="", flush=True)
         print(*args, **kwargs)
+        print(Con.RESET, end="", flush=True)
 
 def linc_source() -> str:
     with open(__file__, 'rb') as file:
@@ -88,11 +99,11 @@ def run_commands_with_retry(commands, retries=3, delay=0.5, timeout=5):
                     time.sleep(delay)
 
 
-def base_run_cmd(runtime):
-    cmd = [runtime, "run", "-d", "--name", NAME, "--platform", PLATFORM, "-p", PORT]
+def base_run_cmd():
+    cmd = [RUNTIME, "run", "-d", "--name", NAME, "--platform", PLATFORM, "-p", PORT]
 
     if RUNARGS: cmd += shlex.split(RUNARGS)
-    if runtime in ("docker", "podman"): cmd.append("--privileged")
+    if RUNTIME in ("docker", "podman"): cmd.append("--privileged")
     
     ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
     if ssh_auth_sock:
@@ -102,7 +113,7 @@ def base_run_cmd(runtime):
              "-e", "SSH_AUTH_SOCK=/ssh-agent",
              "-v", f"{ssh_auth_sock}:/ssh-agent",
         ]
-    elif runtime in ("container"):
+    elif RUNTIME in ("container"):
         cmd.append("--ssh")
 
     home_projects = os.path.expanduser(PROJECSTDIR)
@@ -120,13 +131,13 @@ def base_run_cmd(runtime):
     ]
 
     if len(CACHEVOLUME) > 0:
-        subprocess.run([runtime, "volume", "create", CACHEVOLUME], check=False)
+        subprocess.run([RUNTIME, "volume", "create", CACHEVOLUME], check=False)
         cmd += ["-v", f"{CACHEVOLUME}:/var/lib/docker"]
 
     return cmd
 
 
-def run_setup(runtime):
+def run_setup():
     print("Running linc setup inside container")
 
     setup_cmd = (
@@ -147,40 +158,42 @@ def run_setup(runtime):
 
     setup_cmd += "grep 'registry.lakedrops.com' $(which l3d) ; "
     if DEBUG: setup_cmd = "set -x ; " + setup_cmd
-    subprocess.check_call([runtime, "exec", "-it", NAME, "/bin/sh", "-c", setup_cmd])
+    print(Con.DIM, end="", flush=True)
+    subprocess.check_call([RUNTIME, "exec", "-it", NAME, "/bin/sh", "-c", setup_cmd])
+    print(Con.RESET, end="", flush=True)
 
-def rm(runtime: str) -> subprocess.CompletedProcess:
-    p = subprocess.run([runtime, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
-    if(p.returncode): # try again - macos bug
-        p = subprocess.run([runtime, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
+def rm() -> subprocess.CompletedProcess:
+    p = subprocess.run([RUNTIME, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
+    if(p.returncode):
+        p = subprocess.run([RUNTIME, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
     return p
 
-def start(runtime):
-    print(f"Starting {NAME} using {runtime}")
-    dind_kill(runtime)
-    rm(runtime)
-    cmd = base_run_cmd(runtime) + [IMAGE]
+def start():
+    print(f"Starting {NAME} using {RUNTIME}")
+    dind_kill()
+    rm()
+    cmd = base_run_cmd() + [IMAGE]
     try:
         debug("> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"Failed to start container '{NAME}' using {runtime}.", file=sys.stderr)
+        print(f"Failed to start container '{NAME}' using {RUNTIME}.", file=sys.stderr)
         print(cmd, file=sys.stderr)
         sys.exit(e.returncode)
 
-    run_setup(runtime)
+    run_setup()
 
-def pull(runtime: str):
-    cmd = [runtime, "image", "pull", "--platform", PLATFORM, IMAGE]
+def pull():
+    cmd = [RUNTIME, "image", "pull", "--platform", PLATFORM, IMAGE]
     p = subprocess.run(cmd, check=False, capture_output=not DEBUG)
     if(p.returncode):
         print(f"Warning: pull failed")
         debug(cmd)
 
-def container_system_start(runtime: str):
-    if runtime not in ("container"):
+def container_system_start():
+    if RUNTIME not in ("container",):
         return
-    cmd = [runtime, "system", "start"]
+    cmd = [RUNTIME, "system", "start"]
     p = subprocess.run(cmd, check=False)
     if(p.returncode):
         print(f"Error: container system error", file=sys.stderr)
@@ -188,54 +201,55 @@ def container_system_start(runtime: str):
         sys.exit(p.returncode)
 
 
-def stop(runtime, clean_cache=False):
+def stop(clean_cache=False):
     print(f"Stopping {NAME}")
-    dind_kill(runtime)
-    rm(runtime)
+    dind_kill()
+    rm()
     if clean_cache and len(CACHEVOLUME) > 0:
         print(f"Cleaning cache")
-        subprocess.run([runtime, "volume", "rm", CACHEVOLUME], check=False, capture_output=not DEBUG)
+        subprocess.run([RUNTIME, "volume", "rm", CACHEVOLUME], check=False, capture_output=not DEBUG)
 
-def dind_kill(runtime: str) -> subprocess.CompletedProcess:
-    return subprocess.run([runtime, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False, capture_output=not DEBUG)
+def dind_kill() -> subprocess.CompletedProcess:
+    return subprocess.run([RUNTIME, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False, capture_output=not DEBUG)
 
-def container_reset(runtime):
-    if runtime != "container":
+def container_reset():
+    if RUNTIME != "container":
         print("container-reset is only supported when runtime=container", file=sys.stderr)
         sys.exit(1)
 
     print("Resetting container runtime")
 
     commands = [
-        [runtime, "system", "stop"],
-        [runtime, "system", "start"],
+        [RUNTIME, "system", "stop"],
+        [RUNTIME, "system", "start"],
     ]
 
     run_commands_with_retry(commands)
 
-    stop(runtime)
+    stop()
 
     commands = [
-        [runtime, "stop", "--all"],
-        [runtime, "rm", "-f", NAME],
+        [RUNTIME, "stop", "--all"],
+        [RUNTIME, "rm", "-f", NAME],
     ]
 
     run_commands_with_retry(commands)
     print(".")
-    container_system_start(runtime)
+    container_system_start()
     print("Looking good!")
 
 
-def shell(runtime, cmdparam=["/bin/sh"], execparam=[]):
-    cmd = [runtime, "exec"] + execparam + ["-it", NAME] + cmdparam
+def shell(cmdparam=["/bin/sh"], execparam=[], check: bool=True, capture_text:bool=False) -> subprocess.CompletedProcess:
+    cmd = [RUNTIME, "exec"] + execparam + ["-it", NAME] + cmdparam
     debug("shell> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
-    proc = subprocess.run(cmd)
-    if DEBUG and proc.returncode:
+    proc = subprocess.run(cmd, capture_output=capture_text, text=capture_text)
+    if check and proc.returncode:
         debug(f"Failed run: {cmd}")
         sys.exit(proc.returncode)
+    return proc
 
 
-def l3d(runtime: str, inject: bool=False, l3darg: str=""):
+def l3d(inject: bool=False, l3darg: str=""):
     projpath = os.path.expanduser(PROJECSTDIR).replace('\\','/')
     homepath = os.path.expanduser("~").replace('\\','/')
     cwd = os.getcwd().replace('\\','/')
@@ -263,27 +277,27 @@ def l3d(runtime: str, inject: bool=False, l3darg: str=""):
             groupids = ",".join(str(gid) for gid in os.getgroups())
             cmdparam = ["/bin/setpriv", "--reuid", f"{os.getuid()}", "--regid", f"{os.getgid()}", "--groups", f"{groupids}"] + cmdparam
 
-        shell(runtime, cmdparam, execparam)
+        shell(cmdparam, execparam)
 
     def inject_linc():
         def latest_container_id():
-            return subprocess.run([runtime, "exec", NAME, "docker", "ps", "--no-trunc", "-q", "--filter", "status=running", "--latest"], capture_output=True, check=True, text=True).stdout.strip()
+            return subprocess.run([RUNTIME, "exec", NAME, "docker", "ps", "--no-trunc", "-q", "--filter", "status=running", "--latest"], capture_output=True, check=True, text=True).stdout.strip()
         def write_code_to_container(container_id, base64_source, dest_path="/usr/local/bin/ao"):
-            subprocess.run([runtime, "exec", NAME, "docker", "exec", container_id, "sh", "-c", f"echo {base64_source} | base64 -d > {dest_path}"], check=True)
-            subprocess.run([runtime, "exec", NAME, "docker", "exec", container_id, "chmod", "+x", dest_path], check=True)
+            subprocess.run([RUNTIME, "exec", NAME, "docker", "exec", container_id, "sh", "-c", f"echo {base64_source} | base64 -d > {dest_path}"], check=True)
+            subprocess.run([RUNTIME, "exec", NAME, "docker", "exec", container_id, "chmod", "+x", dest_path], check=True)
         new_id = latest_container_id()
         debug(f"new container id={new_id}")
         source = linc_source()
         write_code_to_container(new_id, source)            
     if inject:
-        shell_exec(f"cd '{container_dir}' && l3d 'echo ''Injecting cli see:\033[1m ao --help \033[0m'''")
+        shell_exec(f"cd '{container_dir}' && l3d 'echo ''Injecting cli see:{Con.BOLD + Con.BRIGHT_GREEN} ao --help {Con.RESET}'''")
         inject_linc()
         shell_exec(f"cd '{container_dir}' && l3d")
     else:
         shell_exec(f"cd '{container_dir}' && l3d {l3darg}")
         
         
-def show_env_vars(runtime):
+def show_env_vars():
     """Display current LINC_ environment variables and their values."""
     env_vars = {
         "LINC_NAME": (NAME, "Container name"),
@@ -297,8 +311,8 @@ def show_env_vars(runtime):
         "LINC_FORWARDHOMEDIR": (str(FORWARDHOMEDIR), "Forward user home directory into container"),
         "LINC_DEBUG": (str(DEBUG), "Enable debug output"),
         "LINC_USERNAME": (USERNAME, "Username inside container"),
-        "LINC_RUNTIME": (runtime, "Container runtime (docker/podman/container)"),
-        "LINC_RUNARGS": (RUNARGS, f"pass arguments to `{runtime} run`"),
+        "LINC_RUNTIME": (RUNTIME, "Container runtime (docker/podman/container)"),
+        "LINC_RUNARGS": (RUNARGS, f"pass arguments to `{RUNTIME} run`"),
     }
     
     print("\nLINC Environment Variables:")
@@ -329,7 +343,7 @@ def main():
         "  down, stop [--cc]  Remove linc [and purge cache].\n\n"
         "Tools:\n"
         "  l3d [reset|...]    Run l3d inside linc (for project commands). Arg is forwarded to l3d.\n"
-        "  shell              Open an interactive root shell inside the running container.\n"
+        "  shell              Open an interactive root shell on the abstraction layer.\n"
         "  env                Display current LINC_* environment variables and their values.\n"
         "  container-reset    Restart container system and stop/remove existing linc container (only when LINC_RUNTIME=container).\n\n"
         "Configuration:\n"
@@ -369,25 +383,24 @@ def main():
 
     args = parser.parse_args()
 
-    runtime = find_runtime()
-    if not runtime:
+    if not RUNTIME:
         print("Error: No container runtime found", file=sys.stderr)
         sys.exit(1)
 
     if args.command in ("up", "start"):
         if getattr(args, "pull", False):
-            pull(runtime)
-        start(runtime)
+            pull()
+        start()
     elif args.command in ("start-l3d", "up-l3d"):
-        pull(runtime)
-        container_system_start(runtime)
-        start(runtime)
-        l3d(runtime, inject=True)
-    elif args.command in ("down", "stop"): stop(runtime, clean_cache=getattr(args, "cc", False))
-    elif args.command == "shell": shell(runtime)
-    elif args.command == "env": show_env_vars(runtime)
-    elif args.command == "l3d": l3d(runtime, l3darg=" ".join(args.cmd_args))
-    elif args.command == "container-reset": container_reset(runtime)
+        pull()
+        container_system_start()
+        start()
+        l3d(inject=True)
+    elif args.command in ("down", "stop"): stop(clean_cache=getattr(args, "cc", False))
+    elif args.command == "shell": shell()
+    elif args.command == "env": show_env_vars()
+    elif args.command == "l3d": l3d(l3darg=" ".join(args.cmd_args))
+    elif args.command == "container-reset": container_reset()
 
 def ao_build(args):
     cmd = """
@@ -397,7 +410,6 @@ def ao_build(args):
         docker rm -f traefik ; cd $HOME/.traefik/ && COMPOSE_PROJECT_NAME="" docker compose up -d ; cd -
         a d4d up
     """
-    if(args.clean): print("cleanup not implemented")
     debug(cmd); subprocess.run(["sh", "-c", cmd], check=False)
 
 def ao_arch(args):
@@ -407,7 +419,7 @@ def ao_arch(args):
         print(f"{arch}: {works}")
 
 def _testarch(arch: str) -> bool:
-    cmd = [find_runtime(), "run", "--platform", arch, "--rm", "busybox", "sh", "-c", "echo 'works'"]
+    cmd = [RUNTIME, "run", "--platform", arch, "--rm", "busybox", "sh", "-c", "echo 'works'"]
     debug(cmd)
     p = subprocess.run(cmd, check=False, capture_output=True, text=True)
     return "works" == p.stdout.strip()
@@ -417,7 +429,6 @@ def ao():
     sub = parser.add_subparsers(dest="command", required=True)
     
     build = sub.add_parser("build", help="build the project")
-    build.add_argument("--clean", action="store_true", help="use git to clean before build")
     build.set_defaults(func=ao_build)
 
     arch = sub.add_parser("arch", help="test architectures")
