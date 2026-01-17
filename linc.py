@@ -71,10 +71,8 @@ def run_commands_with_retry(commands, retries=3, delay=0.5, timeout=5):
         attempt = 0
         while attempt <= retries:
             try:
-                if DEBUG:
-                    debug(f"Running: {cmd} (attempt {attempt + 1})")
-                else:
-                    print(".", end="", flush=True)
+                if DEBUG: debug(f"Running: {cmd} (attempt {attempt + 1})")
+                else: print(".", end="", flush=True)
                 subprocess.run(cmd, check=True, timeout=timeout, capture_output=not DEBUG)
                 print(".", end="", flush=True)
                 break
@@ -93,11 +91,8 @@ def run_commands_with_retry(commands, retries=3, delay=0.5, timeout=5):
 def base_run_cmd(runtime):
     cmd = [runtime, "run", "-d", "--name", NAME, "--platform", PLATFORM, "-p", PORT]
 
-    if RUNARGS:
-        cmd += shlex.split(RUNARGS)
-
-    if runtime in ("docker", "podman"):
-        cmd.append("--privileged")
+    if RUNARGS: cmd += shlex.split(RUNARGS)
+    if runtime in ("docker", "podman"): cmd.append("--privileged")
     
     ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
     if ssh_auth_sock:
@@ -151,10 +146,7 @@ def run_setup(runtime):
         )
 
     setup_cmd += "grep 'registry.lakedrops.com' $(which l3d) ; "
-
-    if DEBUG:
-        setup_cmd = "set -x ; " + setup_cmd
-
+    if DEBUG: setup_cmd = "set -x ; " + setup_cmd
     subprocess.check_call([runtime, "exec", "-it", NAME, "/bin/sh", "-c", setup_cmd])
 
 def rm(runtime: str) -> subprocess.CompletedProcess:
@@ -249,11 +241,8 @@ def l3d(runtime: str, inject: bool=False, l3darg: str=""):
     cwd = os.getcwd().replace('\\','/')
     container_dir = ""
 
-    if cwd.startswith(homepath):
-        container_dir = "/.hostuserhome" + cwd[len(homepath):]
-
-    if cwd.startswith(projpath):
-        container_dir = "/Projects" + cwd[len(projpath):]
+    if cwd.startswith(homepath): container_dir = "/.hostuserhome" + cwd[len(homepath):]
+    if cwd.startswith(projpath): container_dir = "/Projects" + cwd[len(projpath):]
 
     if DEBUG:
         debug(f"PROJECTSDIR: {PROJECSTDIR}")
