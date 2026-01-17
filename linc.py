@@ -287,7 +287,7 @@ def l3d(runtime: str, inject: bool=False, l3darg: str=""):
         source = linc_source()
         write_code_to_container(new_id, source)            
     if inject:
-        shell_exec(f"cd '{container_dir}' && l3d 'uname -snr'")
+        shell_exec(f"cd '{container_dir}' && l3d 'echo ''Injecting cli see:\033[1m ao --help \033[0m'''")
         inject_linc()
         shell_exec(f"cd '{container_dir}' && l3d")
     else:
@@ -400,9 +400,6 @@ def main():
     elif args.command == "l3d": l3d(runtime, l3darg=" ".join(args.cmd_args))
     elif args.command == "container-reset": container_reset(runtime)
 
-def ao_clean():
-    cmd = "git clean -dx && rm -rf web/ vendor/ && git reset --hard"
-    debug(cmd); subprocess.run(["sh", "-c", cmd], check=False)
 def ao_build(args):
     cmd = """
         grep -i 'apple\\|arm' /proc/cpuinfo >/dev/null && export DOCKER_DEFAULT_PLATFORM=linux/arm64
@@ -411,7 +408,7 @@ def ao_build(args):
         docker rm -f traefik ; cd $HOME/.traefik/ && COMPOSE_PROJECT_NAME="" docker compose up -d ; cd -
         a d4d up
     """
-    if(args.clean): ao_clean()
+    if(args.clean): print("cleanup not implemented")
     debug(cmd); subprocess.run(["sh", "-c", cmd], check=False)
 
 def ao_arch(args):
@@ -421,7 +418,7 @@ def ao_arch(args):
         print(f"{arch}: {works}")
 
 def _testarch(arch: str) -> bool:
-    cmd = [find_runtime(), "run", "--platform", arch, "--rm", "alpine", "sh", "-c", "echo 'works'"]
+    cmd = [find_runtime(), "run", "--platform", arch, "--rm", "busybox", "sh", "-c", "echo 'works'"]
     debug(cmd)
     p = subprocess.run(cmd, check=False, capture_output=True, text=True)
     return "works" == p.stdout.strip()
@@ -434,17 +431,13 @@ def ao():
     build.add_argument("--clean", action="store_true", help="use git to clean before build")
     build.set_defaults(func=ao_build)
 
-    clean = sub.add_parser("clean", help="clean with git")
-    clean.set_defaults(func=ao_clean)
-
     arch = sub.add_parser("arch", help="test architectures")
     arch.set_defaults(func=ao_arch)
 
     args = parser.parse_args()
     args.func(args)
 
-if __name__ == "__main__":   
-    if len(sys.argv) > 1 and sys.argv[1] == "ao":  sys.argv = sys.argv[1:]
+if __name__ == "__main__":
     script_name = os.path.basename(sys.argv[0])   
     if script_name in ("ao", "ao.py"): ao()
     else: main()
