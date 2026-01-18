@@ -302,7 +302,7 @@ def l3d(inject: bool=False, l3darg: str=""):
         source = linc_source()
         write_code_to_container(new_id, source)            
     if inject:
-        shell_exec(f"cd '{container_dir}' && l3d 'echo ''Injecting cli see:{Con.BOLD + Con.BRIGHT_GREEN} ao --help {Con.RESET}'''")
+        shell_exec(f"cd '{container_dir}' && l3d 'echo ''{Con.BOLD + Con.BRIGHT_GREEN}Injecting cli{Con.RESET}'''")
         inject_linc()
         shell_exec(f"cd '{container_dir}' && l3d")
     else:
@@ -408,6 +408,7 @@ def main():
         container_system_start()
         start()
         l3d(inject=True)
+        stop(clean_cache=False)
     elif args.command in ("down", "stop"): stop(clean_cache=getattr(args, "cc", False))
     elif args.command == "shell": shell()
     elif args.command == "env": show_env_vars()
