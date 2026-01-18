@@ -131,14 +131,19 @@ def base_run_cmd():
     ]                
 
     if len(CACHEVOLUME) > 0:
-        subprocess.run([RUNTIME, "volume", "create", CACHEVOLUME], check=False, capture_output=not DEBUG)
-        subprocess.run([RUNTIME, "volume", "create", CACHEVOLUME + "-traefik"], check=False, capture_output=not DEBUG)
-        subprocess.run([RUNTIME, "volume", "create", CACHEVOLUME + "-composer"], check=False, capture_output=not DEBUG)
+        create_volume(CACHEVOLUME, False)
+        create_volume(CACHEVOLUME + "-traefik", FORWARDUSERID)
+        create_volume(CACHEVOLUME + "-composer", FORWARDUSERID)
         cmd += ["-v", f"{CACHEVOLUME}:/var/lib/docker"]
         cmd += ["-v", f"{CACHEVOLUME}-traefik:/.hostuserhome/.traefik"]
         cmd += ["-v", f"{CACHEVOLUME}-composer:/.hostuserhome/.composer/cache"]
 
     return cmd
+
+def create_volume(name:str, chown:bool):
+    def run(cmd, check=False): debug(cmd); subprocess.run(cmd, check=check, capture_output=not DEBUG)
+    run([RUNTIME, "volume", "create", name])
+    if chown: run([RUNTIME, "run", "-v", f"{name}:/vol", "--rm", "busybox", "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/vol" ])
 
 def run_setup():
     print("Running linc setup inside container")
@@ -289,8 +294,9 @@ def l3d(inject: bool=False, l3darg: str=""):
         def latest_container_id():
             return subprocess.run([RUNTIME, "exec", NAME, "docker", "ps", "--no-trunc", "-q", "--filter", "status=running", "--latest"], capture_output=True, check=True, text=True).stdout.strip()
         def write_code_to_container(container_id, base64_source, dest_path="/usr/local/bin/ao"):
-            subprocess.run([RUNTIME, "exec", NAME, "docker", "exec", container_id, "sh", "-c", f"echo {base64_source} | base64 -d > {dest_path}"], check=True)
-            subprocess.run([RUNTIME, "exec", NAME, "docker", "exec", container_id, "chmod", "+x", dest_path], check=True)
+            sudo = [RUNTIME, "exec", NAME, "docker", "exec", "--user", "root", container_id]
+            subprocess.run(sudo + ["sh", "-c", f"echo {base64_source} | base64 -d > {dest_path}"], check=True)
+            subprocess.run(sudo + ["chmod", "+x", dest_path], check=True)
         new_id = latest_container_id()
         debug(f"new container id={new_id}")
         source = linc_source()
@@ -410,6 +416,7 @@ def main():
 
 def ao_build(args):
     cmd = """
+        cd /drupal || exit
         grep -i 'apple\\|arm' /proc/cpuinfo >/dev/null && export DOCKER_DEFAULT_PLATFORM=linux/arm64
         grep -i 'apple\\|arm' /proc/cpuinfo >/dev/null && echo -e 'services:\\n  pma:\\n    platform: linux/amd64' > docker-compose.override.yml
         composer install -n
