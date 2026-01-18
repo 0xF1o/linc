@@ -67,19 +67,21 @@ class Con:
     BRIGHT_GREEN = "\033[92m"
 
 def debug(*args, **kwargs):
-    if DEBUG:
-        print(Con.DIM, end="", flush=True)
-        print(*args, **kwargs)
-        print(Con.RESET, end="", flush=True)
+    if DEBUG: print(Con.DIM, end="", flush=True); print(*args, **kwargs); print(Con.RESET, end="", flush=True)
+
+def run(cmd, capture_output:bool=False, check:bool=False, text:bool=True, **kwargs) -> subprocess.CompletedProcess:
+    if DEBUG: print(f"{Con.DIM}run> ", end="", flush=True); debug(cmd)
+    result = subprocess.run(cmd, capture_output=capture_output, check=check, text=text, **kwargs)
+    if DEBUG and result.returncode: print(f"{Con.BRIGHT_RED}returncode={result.returncode}{Con.RESET}")
+    return result
 
 def run_commands_with_retry(commands, retries=3, delay=0.5, timeout=5):
     for cmd in commands:
         attempt = 0
         while attempt <= retries:
             try:
-                if DEBUG: debug(f"Running: {cmd} (attempt {attempt + 1})")
-                else: print(".", end="", flush=True)
-                subprocess.run(cmd, check=True, timeout=timeout, capture_output=not DEBUG)
+                print(".", end="", flush=True)
+                run(cmd, check=True, timeout=timeout, capture_output=not DEBUG)
                 print(".", end="", flush=True)
                 break
             except Exception as e:
@@ -136,9 +138,8 @@ def base_run_cmd():
     return cmd
 
 def create_volume(name:str, chown:bool):
-    def run(cmd, check=False): debug(cmd); subprocess.run(cmd, check=check, capture_output=not DEBUG)
-    run([RUNTIME, "volume", "create", name])
-    if chown: run([RUNTIME, "run", "-v", f"{name}:/vol", "--rm", "busybox", "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/vol" ])
+    run([RUNTIME, "volume", "create", name], capture_output=not DEBUG, check=False)
+    if chown: run([RUNTIME, "run", "-v", f"{name}:/vol", "--rm", "busybox", "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/vol" ], capture_output=not DEBUG)
 
 def run_setup():
     print("Running linc setup inside container")
@@ -166,9 +167,9 @@ def run_setup():
     print(Con.RESET, end="", flush=True)
 
 def rm() -> subprocess.CompletedProcess:
-    p = subprocess.run([RUNTIME, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
+    p = run([RUNTIME, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
     if(p.returncode):
-        p = subprocess.run([RUNTIME, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
+        p = run([RUNTIME, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
     return p
 
 def start():
@@ -177,18 +178,16 @@ def start():
     rm()
     cmd = base_run_cmd() + [IMAGE]
     try:
-        debug("> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
-        subprocess.run(cmd, check=True)
+        run(cmd, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Failed to start container '{NAME}' using {RUNTIME}.", file=sys.stderr)
-        print(cmd, file=sys.stderr)
         sys.exit(e.returncode)
 
     run_setup()
 
 def pull():
     cmd = [RUNTIME, "image", "pull", "--platform", PLATFORM, IMAGE]
-    p = subprocess.run(cmd, check=False, capture_output=not DEBUG)
+    p = run(cmd, check=False, capture_output=not DEBUG)
     if(p.returncode):
         print(f"Warning: pull failed")
         debug(cmd)
@@ -197,10 +196,9 @@ def container_system_start():
     if RUNTIME not in ("container",):
         return
     cmd = [RUNTIME, "system", "start"]
-    p = subprocess.run(cmd, check=False)
+    p = run(cmd, check=False)
     if(p.returncode):
         print(f"Error: container system error", file=sys.stderr)
-        debug(cmd)
         sys.exit(p.returncode)
 
 
@@ -210,13 +208,12 @@ def stop(clean_cache=False):
     rm()
     if clean_cache and len(CACHEVOLUME) > 0:
         print(f"Cleaning cache")
-        subprocess.run([RUNTIME, "volume", "rm", CACHEVOLUME], check=False, capture_output=not DEBUG)
-        subprocess.run([RUNTIME, "volume", "rm", CACHEVOLUME + "-traefik"], check=False, capture_output=not DEBUG)
-        subprocess.run([RUNTIME, "volume", "rm", CACHEVOLUME + "-composer"], check=False, capture_output=not DEBUG)
+        run([RUNTIME, "volume", "rm", CACHEVOLUME], check=False, capture_output=not DEBUG)
+        run([RUNTIME, "volume", "rm", CACHEVOLUME + "-traefik"], check=False, capture_output=not DEBUG)
+        run([RUNTIME, "volume", "rm", CACHEVOLUME + "-composer"], check=False, capture_output=not DEBUG)
 
 
-def dind_kill() -> subprocess.CompletedProcess:
-    return subprocess.run([RUNTIME, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False, capture_output=not DEBUG)
+def dind_kill() -> subprocess.CompletedProcess: return run([RUNTIME, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False, capture_output=not DEBUG)
 
 def container_reset():
     if RUNTIME != "container":
@@ -224,34 +221,18 @@ def container_reset():
         sys.exit(1)
 
     print("Resetting container runtime")
-
-    commands = [
-        [RUNTIME, "system", "stop"],
-        [RUNTIME, "system", "start"],
-    ]
-
-    run_commands_with_retry(commands)
-
+    run_commands_with_retry([[RUNTIME, "system", "stop"],[RUNTIME, "system", "start"]])
     stop()
-
-    commands = [
-        [RUNTIME, "stop", "--all"],
-        [RUNTIME, "rm", "-f", NAME],
-    ]
-
-    run_commands_with_retry(commands)
+    run_commands_with_retry([[RUNTIME, "stop", "--all"],[RUNTIME, "rm", "-f", NAME]])
     print(".")
     container_system_start()
-    print("Looking good!")
+    print(f"{Con.BRIGHT_GREEN}Looking good!{Con.RESET}")
 
 
 def shell(cmdparam=["/bin/sh"], execparam=[], check: bool=True, capture_text:bool=False) -> subprocess.CompletedProcess:
     cmd = [RUNTIME, "exec"] + execparam + ["-it", NAME] + cmdparam
-    debug("shell> "+" ".join(shlex.quote(arg) for arg in cmd), file=sys.stderr)
-    proc = subprocess.run(cmd, capture_output=capture_text, text=capture_text)
-    if check and proc.returncode:
-        debug(f"Failed run: {cmd}")
-        sys.exit(proc.returncode)
+    proc = run(cmd, capture_output=capture_text, text=capture_text)
+    if check and proc.returncode: sys.exit(proc.returncode)
     return proc
 
 
@@ -290,11 +271,11 @@ def l3d(inject: bool=False, l3darg: str=""):
             with open(__file__, 'rb') as file:
                 return base64.b64encode(file.read()).decode('utf-8')        
         def latest_container_id():
-            return subprocess.run([RUNTIME, "exec", NAME, "docker", "ps", "--no-trunc", "-q", "--filter", "status=running", "--latest"], capture_output=True, check=True, text=True).stdout.strip()
+            return run([RUNTIME, "exec", NAME, "docker", "ps", "--no-trunc", "-q", "--filter", "status=running", "--latest"], capture_output=True, check=True, text=True).stdout.strip()
         def write_code_to_container(container_id, base64_source, dest_path="/usr/local/bin/ao"):
             sudo = [RUNTIME, "exec", NAME, "docker", "exec", "--user", "root", container_id]
-            subprocess.run(sudo + ["sh", "-c", f"echo {base64_source} | base64 -d > {dest_path}"], check=True)
-            subprocess.run(sudo + ["chmod", "+x", dest_path], check=True)
+            run(sudo + ["sh", "-c", f"echo {base64_source} | base64 -d > {dest_path}"], check=True)
+            run(sudo + ["chmod", "+x", dest_path], check=True)
         new_id = latest_container_id()
         debug(f"new container id={new_id}")
         source = linc_source()
@@ -422,11 +403,12 @@ def ao_build(args):
         cd /drupal || exit
         grep -i 'apple\\|arm' /proc/cpuinfo >/dev/null && export DOCKER_DEFAULT_PLATFORM=linux/arm64
         grep -i 'apple\\|arm' /proc/cpuinfo >/dev/null && echo -e 'services:\\n  pma:\\n    platform: linux/amd64' > docker-compose.override.yml
+        mkdir -p nginx
         composer install -n && composer install -n
         docker rm -f traefik ; cd $HOME/.traefik/ && COMPOSE_PROJECT_NAME="" docker compose up -d ; cd -
         a d4d up
     """
-    debug(cmd); subprocess.run(["sh", "-c", cmd], check=False)
+    run(["sh", "-c", cmd], check=False)
 
 def ao_arch(args):
     archs=["linux/amd64", "linux/arm64"]
@@ -435,9 +417,7 @@ def ao_arch(args):
         print(f"{arch}: {works}")
 
 def _testarch(arch: str) -> bool:
-    cmd = [RUNTIME, "run", "--platform", arch, "--rm", "busybox", "sh", "-c", "echo 'works'"]
-    debug(cmd)
-    p = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    p = run([RUNTIME, "run", "--platform", arch, "--rm", "busybox", "sh", "-c", "echo 'works'"], check=False, capture_output=True, text=True)
     return "works" == p.stdout.strip()
 
 def ao():
