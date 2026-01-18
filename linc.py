@@ -159,7 +159,7 @@ def run_setup():
 
     if FORWARDUSERID:
         setup_cmd += (
-            f"echo {USERNAME}:x:{os.getuid()}:{os.getgid()}:l3d user:/home/flo:/bin/bash >> /etc/passwd ; "
+            f"echo {USERNAME}:x:{os.getuid()}:{os.getgid()}:l3d user:/home/{USERNAME}:/bin/bash >> /etc/passwd ; "
             f"echo 'root ALL=(ALL:ALL) NOPASSWD: ALL' >> /etc/sudoers ; "
             f"echo '{USERNAME} ALL=(ALL:ALL) NOPASSWD: ALL' >> /etc/sudoers ; "
         )
