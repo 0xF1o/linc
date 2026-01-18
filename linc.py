@@ -420,7 +420,7 @@ def ao_build(args):
         cd /drupal || exit
         grep -i 'apple\\|arm' /proc/cpuinfo >/dev/null && export DOCKER_DEFAULT_PLATFORM=linux/arm64
         grep -i 'apple\\|arm' /proc/cpuinfo >/dev/null && echo -e 'services:\\n  pma:\\n    platform: linux/amd64' > docker-compose.override.yml
-        composer install -n
+        composer install -n && composer install -n
         docker rm -f traefik ; cd $HOME/.traefik/ && COMPOSE_PROJECT_NAME="" docker compose up -d ; cd -
         a d4d up
     """
