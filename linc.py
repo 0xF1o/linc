@@ -38,8 +38,7 @@ load_env(".env", ["LINC_"])
 def find_runtime() -> str:
     def _find() -> str:
         for cmd in ("container", "docker", "podman"):
-            if shutil.which(cmd):
-                return cmd
+            if shutil.which(cmd): return cmd
         return None
         
     return os.environ.get("LINC_RUNTIME", _find())
@@ -47,7 +46,8 @@ def find_runtime() -> str:
 NAME = os.environ.get("LINC_NAME", "linc-shell")
 IMAGE = os.environ.get("LINC_IMAGE", "ghcr.io/0xf1o/linc-dind:latest")
 PLATFORM = os.environ.get("LINC_PLATFORM", "linux/amd64")
-PORT = os.environ.get("LINC_PORT", "8000:8000")
+PORT = os.environ.get("LINC_PORT", "8000")
+PORTMAP = os.environ.get("LINC_PORTMAP", f"{PORT}:8000")
 CACHEVOLUME = os.environ.get("LINC_CACHEVOLUME", "linc-cache")
 SETUPVERSION = os.environ.get("LINC_SETUPVERSION", "registry.lakedrops.com/docker/l3d/setup:latest")
 PROJECSTDIR = os.environ.get("LINC_PROJECTSDIR", "~/Projects")
@@ -100,7 +100,7 @@ def run_commands_with_retry(commands, retries=3, delay=0.5, timeout=5):
 
 
 def base_run_cmd():
-    cmd = [RUNTIME, "run", "-d", "--name", NAME, "--platform", PLATFORM, "-p", PORT]
+    cmd = [RUNTIME, "run", "-d", "--name", NAME, "--platform", PLATFORM, "-p", PORTMAP]
 
     if RUNARGS: cmd += shlex.split(RUNARGS)
     if RUNTIME in ("docker", "podman"): cmd.append("--privileged")
