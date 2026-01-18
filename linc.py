@@ -72,11 +72,6 @@ def debug(*args, **kwargs):
         print(*args, **kwargs)
         print(Con.RESET, end="", flush=True)
 
-def linc_source() -> str:
-    with open(__file__, 'rb') as file:
-        return base64.b64encode(file.read()).decode('utf-8')
-
-
 def run_commands_with_retry(commands, retries=3, delay=0.5, timeout=5):
     for cmd in commands:
         attempt = 0
@@ -291,6 +286,9 @@ def l3d(inject: bool=False, l3darg: str=""):
         shell(cmdparam, execparam)
 
     def inject_linc():
+        def linc_source() -> str:
+            with open(__file__, 'rb') as file:
+                return base64.b64encode(file.read()).decode('utf-8')        
         def latest_container_id():
             return subprocess.run([RUNTIME, "exec", NAME, "docker", "ps", "--no-trunc", "-q", "--filter", "status=running", "--latest"], capture_output=True, check=True, text=True).stdout.strip()
         def write_code_to_container(container_id, base64_source, dest_path="/usr/local/bin/ao"):
@@ -351,10 +349,12 @@ def main():
         "Manage the linc environment.\n\n"
         "Commands:\n"
         "  start-l3d          [Re]Start linc, pull, run setup and start l3d.\n"
+        "Commands for manual steps:\n"
         "  up, start [--pull] [Re]Start linc and run initial setup.\n"
         "  down, stop [--cc]  Remove linc [and purge cache].\n\n"
+        "  l3d-inject         Run l3d in linc and inject cli \n"
         "Tools:\n"
-        "  l3d [reset|...]    Run l3d inside linc (for project commands). Arg is forwarded to l3d.\n"
+        "  l3d [reset|...]    Run l3d in linc (for project commands). Arg is forwarded to l3d.\n"
         "  shell              Open an interactive root shell on the abstraction layer.\n"
         "  env                Display current LINC_* environment variables and their values.\n"
         "  container-reset    Restart container system and stop/remove existing linc container (only when LINC_RUNTIME=container).\n\n"
@@ -385,6 +385,7 @@ def main():
     stop_cmd.add_argument("--cc", action="store_true")
 
     sub.add_parser("shell")
+    sub.add_parser("l3d-inject")
 
     l3d_cmd = sub.add_parser("l3d")
     l3d_cmd.add_argument("cmd_args", nargs=argparse.REMAINDER)
@@ -413,6 +414,7 @@ def main():
     elif args.command == "shell": shell()
     elif args.command == "env": show_env_vars()
     elif args.command == "l3d": l3d(l3darg=" ".join(args.cmd_args))
+    elif args.command == "l3d-inject": l3d(inject=True)
     elif args.command == "container-reset": container_reset()
 
 def ao_build(args):
