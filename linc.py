@@ -170,6 +170,7 @@ def rm() -> subprocess.CompletedProcess:
     p = run([RUNTIME, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
     if(p.returncode):
         p = run([RUNTIME, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
+    run([RUNTIME, "volume", "rm", CACHEVOLUME + "-traefik"], check=False, capture_output=not DEBUG)
     return p
 
 def start():
@@ -209,7 +210,6 @@ def stop(clean_cache=False):
     if clean_cache and len(CACHEVOLUME) > 0:
         print(f"Cleaning cache")
         run([RUNTIME, "volume", "rm", CACHEVOLUME], check=False, capture_output=not DEBUG)
-        run([RUNTIME, "volume", "rm", CACHEVOLUME + "-traefik"], check=False, capture_output=not DEBUG)
         run([RUNTIME, "volume", "rm", CACHEVOLUME + "-composer"], check=False, capture_output=not DEBUG)
 
 
@@ -235,8 +235,7 @@ def shell(cmdparam=["/bin/sh"], execparam=[], check: bool=True, capture_text:boo
     if check and proc.returncode: sys.exit(proc.returncode)
     return proc
 
-
-def l3d(inject: bool=False, l3darg: str=""):
+def get_container_dir() -> str:
     projpath = os.path.expanduser(PROJECSTDIR).replace('\\','/')
     homepath = os.path.expanduser("~").replace('\\','/')
     cwd = os.getcwd().replace('\\','/')
@@ -245,17 +244,14 @@ def l3d(inject: bool=False, l3darg: str=""):
     if cwd.startswith(homepath): container_dir = "/.hostuserhome" + cwd[len(homepath):]
     if cwd.startswith(projpath): container_dir = "/Projects" + cwd[len(projpath):]
 
-    if DEBUG:
-        debug(f"PROJECTSDIR: {PROJECSTDIR}")
-        debug(f"projpath: {projpath}")
-        debug(f"homepath: {homepath}")
-        debug(f"cwd: {cwd}")
-        debug(f"container_dir: {container_dir}")
-
+    if DEBUG: debug(f"PROJECTSDIR: {PROJECSTDIR}"); debug(f"projpath: {projpath}") ;debug(f"homepath: {homepath}"); debug(f"cwd: {cwd}"); debug(f"container_dir: {container_dir}")
     if not container_dir:
-        print(f"Error: Not insiede $HOME or LINC_PROJECTSDIR.", file=sys.stderr)
+        print(f"{Con.BRIGHT_RED}Error{Con.RESET}: Not insiede $HOME or LINC_PROJECTSDIR.", file=sys.stderr)
         sys.exit(1)
+    return container_dir
 
+
+def l3d(inject: bool=False, l3darg: str=""):
     def shell_exec(cmdstr):
         cmdparam = ["/bin/sh", "-c", cmdstr]
         execparam = ["-e", "HOME=/.hostuserhome"] if FORWARDHOMEDIR else []
@@ -280,6 +276,7 @@ def l3d(inject: bool=False, l3darg: str=""):
         debug(f"new container id={new_id}")
         source = linc_source()
         write_code_to_container(new_id, source)
+    container_dir = get_container_dir()        
     if inject:
         shell_exec(f"cd '{container_dir}' && l3d 'echo ''{Con.BOLD + Con.BRIGHT_GREEN}Injecting cli{Con.RESET}'''")
         inject_linc()
@@ -399,10 +396,8 @@ def main():
 
 def ao_build(args):
     cmd = """
-        cd /drupal || exit
-        composer install -n && [ -d nginx ] composer install -n # nginx config is missing sometimes
-        docker rm -f traefik ; cd $HOME/.traefik/ && COMPOSE_PROJECT_NAME="" docker compose up -d ; cd - # sometimes needed
-        a d4d up
+        cd /drupal || { echo "where is /drupal" >&2; exit 1; }
+        cd $HOME/.traefik/ && docker compose --project-name traefik up -d ; cd -
     """
     run(["sh", "-c", cmd], check=False)
 
