@@ -45,11 +45,10 @@ def find_runtime() -> str:
 
 NAME = os.environ.get("LINC_NAME", "linc-shell")
 IMAGE = os.environ.get("LINC_IMAGE", "ghcr.io/0xf1o/linc-dind:latest")
-PLATFORM = os.environ.get("LINC_PLATFORM", "linux/amd64")
 PORT = os.environ.get("LINC_PORT", "8000")
 PORTMAP = os.environ.get("LINC_PORTMAP", f"{PORT}:8000")
 CACHEVOLUME = os.environ.get("LINC_CACHEVOLUME", "linc-cache")
-SETUPVERSION = os.environ.get("LINC_SETUPVERSION", "registry.lakedrops.com/docker/l3d/setup:latest")
+SETUPVERSION = os.environ.get("LINC_SETUPVERSION", "--platform linux/amd64 registry.lakedrops.com/docker/l3d/setup:latest")
 PROJECSTDIR = os.environ.get("LINC_PROJECTSDIR", "~/Projects")
 FORWARDUSERID = is_trueish(os.environ.get("LINC_FORWARDUSERID", str(sys.platform == "linux")))
 FORWARDHOMEDIR = is_trueish(os.environ.get("LINC_FORWARDHOMEDIR", "1"))
@@ -69,10 +68,10 @@ class Con:
 def debug(*args, **kwargs):
     if DEBUG: print(Con.DIM, end="", flush=True); print(*args, **kwargs); print(Con.RESET, end="", flush=True)
 
-def run(cmd, capture_output:bool=False, check:bool=False, text:bool=True, **kwargs) -> subprocess.CompletedProcess:
-    if DEBUG: print(f"{Con.DIM}run> ", end="", flush=True); debug(cmd)
+def run(cmd, capture_output:bool=False, check:bool=False, text:bool=True, dbg:bool=True, **kwargs) -> subprocess.CompletedProcess:
+    if dbg and DEBUG: print(f"{Con.DIM}run> ", end="", flush=True); debug(str(cmd)[:512])
     result = subprocess.run(cmd, capture_output=capture_output, check=check, text=text, **kwargs)
-    if DEBUG and result.returncode: print(f"{Con.BRIGHT_RED}returncode={result.returncode}{Con.RESET}")
+    if dbg and DEBUG and result.returncode: debug(f"returncode={result.returncode}")
     return result
 
 def run_commands_with_retry(commands, retries=3, delay=0.5, timeout=5):
@@ -97,10 +96,11 @@ def run_commands_with_retry(commands, retries=3, delay=0.5, timeout=5):
 
 
 def base_run_cmd():
-    cmd = [RUNTIME, "run", "-d", "--name", NAME, "--platform", PLATFORM, "-p", PORTMAP]
+    cmd = [RUNTIME, "run", "-d", "--name", NAME, "-p", PORTMAP]
 
     if RUNARGS: cmd += shlex.split(RUNARGS)
     if RUNTIME in ("docker", "podman"): cmd.append("--privileged")
+    if RUNTIME in ("container"): cmd.append("--rosetta")
     
     ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
     if ssh_auth_sock:
@@ -186,7 +186,7 @@ def start():
     run_setup()
 
 def pull():
-    cmd = [RUNTIME, "image", "pull", "--platform", PLATFORM, IMAGE]
+    cmd = [RUNTIME, "image", "pull", IMAGE]
     p = run(cmd, check=False, capture_output=not DEBUG)
     if(p.returncode):
         print(f"Warning: pull failed")
@@ -293,7 +293,6 @@ def show_env_vars():
     env_vars = {
         "LINC_NAME": (NAME, "Container name"),
         "LINC_IMAGE": (IMAGE, "Container image to run"),
-        "LINC_PLATFORM": (PLATFORM, "Container platform (e.g. linux/amd64)"),
         "LINC_PORT": (PORT, "Port mapping for container"),
         "LINC_CACHEVOLUME": (CACHEVOLUME, "Docker volume for caching (empty to disable)"),
         "LINC_SETUPVERSION": (SETUPVERSION, "Setup image version"),
@@ -401,11 +400,8 @@ def main():
 def ao_build(args):
     cmd = """
         cd /drupal || exit
-        grep -i 'apple\\|arm' /proc/cpuinfo >/dev/null && export DOCKER_DEFAULT_PLATFORM=linux/arm64
-        grep -i 'apple\\|arm' /proc/cpuinfo >/dev/null && echo -e 'services:\\n  pma:\\n    platform: linux/amd64' > docker-compose.override.yml
-        mkdir -p nginx
-        composer install -n && composer install -n
-        docker rm -f traefik ; cd $HOME/.traefik/ && COMPOSE_PROJECT_NAME="" docker compose up -d ; cd -
+        composer install -n && [ -d nginx ] composer install -n # nginx config is missing sometimes
+        docker rm -f traefik ; cd $HOME/.traefik/ && COMPOSE_PROJECT_NAME="" docker compose up -d ; cd - # sometimes needed
         a d4d up
     """
     run(["sh", "-c", cmd], check=False)
