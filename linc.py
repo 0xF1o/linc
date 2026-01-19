@@ -37,12 +37,13 @@ load_env(".env", ["LINC_"])
 
 def find_runtime() -> str:
     def _find() -> str:
-        for cmd in ("container", "docker", "podman"):
+        for cmd in ("container", "podman", "docker"):
             if shutil.which(cmd): return cmd
         return None
         
     return os.environ.get("LINC_RUNTIME", _find())
 
+RUNTIME = find_runtime()
 NAME = os.environ.get("LINC_NAME", "linc-shell")
 IMAGE = os.environ.get("LINC_IMAGE", "ghcr.io/0xf1o/linc-dind:latest")
 PORT = os.environ.get("LINC_PORT", "8000")
@@ -50,12 +51,11 @@ PORTMAP = os.environ.get("LINC_PORTMAP", f"{PORT}:8000")
 CACHEVOLUME = os.environ.get("LINC_CACHEVOLUME", "linc-cache")
 SETUPVERSION = os.environ.get("LINC_SETUPVERSION", "--platform linux/amd64 registry.lakedrops.com/docker/l3d/setup:latest")
 PROJECSTDIR = os.environ.get("LINC_PROJECTSDIR", "~/Projects")
-FORWARDUSERID = is_trueish(os.environ.get("LINC_FORWARDUSERID", str(sys.platform == "linux")))
+FORWARDUSERID = is_trueish(os.environ.get("LINC_FORWARDUSERID", str(sys.platform == "linux" and RUNTIME == "docker")))
 FORWARDHOMEDIR = is_trueish(os.environ.get("LINC_FORWARDHOMEDIR", "1"))
 DEBUG = is_trueish(os.environ.get("LINC_DEBUG", "0"))
 USERNAME = os.environ.get("LINC_USERNAME", getpass.getuser())
 RUNARGS = os.environ.get("LINC_RUNARGS","")
-RUNTIME = find_runtime()
 
 class Con:
     RESET = "\033[0m"
@@ -125,7 +125,7 @@ def base_run_cmd():
     cmd += [
         "-e", f"USER={USERNAME}",
         "-v", os.path.expanduser("~") + ":/.hostuserhome"
-    ]                
+    ]
 
     if len(CACHEVOLUME) > 0:
         create_volume(CACHEVOLUME, False)
@@ -187,7 +187,7 @@ def start():
 
 def pull():
     cmd = [RUNTIME, "image", "pull", IMAGE]
-    p = run(cmd, check=False, capture_output=not DEBUG)
+    p = run(cmd, check=False)
     if(p.returncode):
         print(f"Warning: pull failed")
         debug(cmd)
@@ -269,7 +269,7 @@ def l3d(inject: bool=False, l3darg: str=""):
     def inject_linc():
         def linc_source() -> str:
             with open(__file__, 'rb') as file:
-                return base64.b64encode(file.read()).decode('utf-8')        
+                return base64.b64encode(file.read()).decode('utf-8')
         def latest_container_id():
             return run([RUNTIME, "exec", NAME, "docker", "ps", "--no-trunc", "-q", "--filter", "status=running", "--latest"], capture_output=True, check=True, text=True).stdout.strip()
         def write_code_to_container(container_id, base64_source, dest_path="/usr/local/bin/ao"):
@@ -279,15 +279,15 @@ def l3d(inject: bool=False, l3darg: str=""):
         new_id = latest_container_id()
         debug(f"new container id={new_id}")
         source = linc_source()
-        write_code_to_container(new_id, source)            
+        write_code_to_container(new_id, source)
     if inject:
         shell_exec(f"cd '{container_dir}' && l3d 'echo ''{Con.BOLD + Con.BRIGHT_GREEN}Injecting cli{Con.RESET}'''")
         inject_linc()
         shell_exec(f"cd '{container_dir}' && l3d")
     else:
         shell_exec(f"cd '{container_dir}' && l3d {l3darg}")
-        
-        
+
+
 def show_env_vars():
     """Display current LINC_ environment variables and their values."""
     env_vars = {
@@ -304,7 +304,7 @@ def show_env_vars():
         "LINC_RUNTIME": (RUNTIME, "Container runtime (docker/podman/container)"),
         "LINC_RUNARGS": (RUNARGS, f"pass arguments to `{RUNTIME} run`"),
     }
-    
+
     print("\nLINC Environment Variables:")
     print("=" * 70)
     for var, (value, description) in sorted(env_vars.items()):
@@ -419,7 +419,7 @@ def _testarch(arch: str) -> bool:
 def ao():
     parser = argparse.ArgumentParser(description="[a:o]")
     sub = parser.add_subparsers(dest="command", required=True)
-    
+
     build = sub.add_parser("build", help="build the project")
     build.set_defaults(func=ao_build)
 
@@ -430,6 +430,6 @@ def ao():
     args.func(args)
 
 if __name__ == "__main__":
-    script_name = os.path.basename(sys.argv[0])   
+    script_name = os.path.basename(sys.argv[0])
     if script_name in ("ao", "ao.py"): ao()
     else: main()
