@@ -8,7 +8,6 @@ import sys
 import time
 import getpass
 import shlex
-import base64
 from pathlib import Path
 from typing import Iterable
 
@@ -39,8 +38,6 @@ def find_runtime() -> str:
     def _find() -> str:
         for cmd in ("container", "podman", "docker"):
             if shutil.which(cmd): return cmd
-        return None
-        
     return os.environ.get("LINC_RUNTIME", _find())
 
 RUNTIME = find_runtime()
@@ -95,7 +92,7 @@ def run_commands_with_retry(commands, retries=3, delay=0.5, timeout=5):
                     time.sleep(delay)
 
 
-def base_run_cmd():
+def base_run_cmd(workdir:str="/Projects"):
     cmd = [RUNTIME, "run", "-d", "--name", NAME, "-p", PORTMAP]
 
     if RUNARGS: cmd += shlex.split(RUNARGS)
@@ -114,17 +111,13 @@ def base_run_cmd():
         cmd.append("--ssh")
 
     home_projects = os.path.expanduser(PROJECSTDIR)
-    if os.path.isdir(home_projects):
-        cmd += [
-            "-v", f"{home_projects}:/Projects",
-            "-w", "/Projects"
-        ]
-    else:
-        print(f"Warning! Project directory does not exist ({PROJECSTDIR})")
+    if os.path.isdir(home_projects): cmd += ["-v", f"{home_projects}:/Projects"]
+    else: print(f"Warning! Project directory does not exist ({PROJECSTDIR})")
 
     cmd += [
         "-e", f"USER={USERNAME}",
-        "-v", os.path.expanduser("~") + ":/.hostuserhome"
+        "-v", os.path.expanduser("~") + ":/.hostuserhome",
+        "-w", workdir,
     ]
 
     if len(CACHEVOLUME) > 0:
@@ -174,10 +167,11 @@ def rm() -> subprocess.CompletedProcess:
     return p
 
 def start():
+    container_dir = get_container_dir()
     print(f"Starting {NAME} using {RUNTIME}")
     dind_kill()
     rm()
-    cmd = base_run_cmd() + [IMAGE]
+    cmd = base_run_cmd(container_dir) + [IMAGE]
     try:
         run(cmd, check=True)
     except subprocess.CalledProcessError as e:
@@ -246,12 +240,12 @@ def get_container_dir() -> str:
 
     if DEBUG: debug(f"PROJECTSDIR: {PROJECSTDIR}"); debug(f"projpath: {projpath}") ;debug(f"homepath: {homepath}"); debug(f"cwd: {cwd}"); debug(f"container_dir: {container_dir}")
     if not container_dir:
-        print(f"{Con.BRIGHT_RED}Error{Con.RESET}: Not insiede $HOME or LINC_PROJECTSDIR.", file=sys.stderr)
+        print(f"{Con.BRIGHT_RED}Error{Con.RESET}: Not insiede $HOME or $LINC_PROJECTSDIR.", file=sys.stderr)
         sys.exit(1)
     return container_dir
 
 
-def l3d(inject: bool=False, l3darg: str=""):
+def l3d(l3darg: str=""):
     def shell_exec(cmdstr):
         cmdparam = ["/bin/sh", "-c", cmdstr]
         execparam = ["-e", "HOME=/.hostuserhome"] if FORWARDHOMEDIR else []
@@ -261,28 +255,8 @@ def l3d(inject: bool=False, l3darg: str=""):
             cmdparam = ["/bin/setpriv", "--reuid", f"{os.getuid()}", "--regid", f"{os.getgid()}", "--groups", f"{groupids}"] + cmdparam
 
         shell(cmdparam, execparam)
-
-    def inject_linc():
-        def linc_source() -> str:
-            with open(__file__, 'rb') as file:
-                return base64.b64encode(file.read()).decode('utf-8')
-        def latest_container_id():
-            return run([RUNTIME, "exec", NAME, "docker", "ps", "--no-trunc", "-q", "--filter", "status=running", "--latest"], capture_output=True, check=True, text=True).stdout.strip()
-        def write_code_to_container(container_id, base64_source, dest_path="/usr/local/bin/ao"):
-            sudo = [RUNTIME, "exec", NAME, "docker", "exec", "--user", "root", container_id]
-            run(sudo + ["sh", "-c", f"echo {base64_source} | base64 -d > {dest_path}"], check=True)
-            run(sudo + ["chmod", "+x", dest_path], check=True)
-        new_id = latest_container_id()
-        debug(f"new container id={new_id}")
-        source = linc_source()
-        write_code_to_container(new_id, source)
     container_dir = get_container_dir()        
-    if inject:
-        shell_exec(f"cd '{container_dir}' && l3d 'echo ''{Con.BOLD + Con.BRIGHT_GREEN}Injecting cli{Con.RESET}'''")
-        inject_linc()
-        shell_exec(f"cd '{container_dir}' && l3d")
-    else:
-        shell_exec(f"cd '{container_dir}' && l3d {l3darg}")
+    shell_exec(f"cd '{container_dir}' && L3DSHELL=/bin/bash l3d {l3darg}")
 
 
 def show_env_vars():
@@ -325,11 +299,10 @@ def main():
     help_description = (
         "Manage the linc environment.\n\n"
         "Commands:\n"
-        "  start-l3d          [Re]Start linc, pull, run setup and start l3d.\n"
+        "  start-l3d [--once] [Re]Start linc, pull, run setup and start l3d.\n"
         "Commands for manual steps:\n"
         "  up, start [--pull] [Re]Start linc and run initial setup.\n"
         "  down, stop [--cc]  Remove linc [and purge cache].\n\n"
-        "  l3d-inject         Run l3d in linc and inject cli \n"
         "Tools:\n"
         "  l3d [reset|...]    Run l3d in linc (for project commands). Arg is forwarded to l3d.\n"
         "  shell              Open an interactive root shell on the abstraction layer.\n"
@@ -346,8 +319,11 @@ def main():
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("start-l3d")
-    sub.add_parser("up-l3d")
+    sl3d = sub.add_parser("start-l3d")
+    sl3d.add_argument("--once")
+
+    ul3d = sub.add_parser("up-l3d")
+    ul3d.add_argument("--once")
 
     up = sub.add_parser("up")
     up.add_argument("--pull", action="store_true")
@@ -362,7 +338,6 @@ def main():
     stop_cmd.add_argument("--cc", action="store_true")
 
     sub.add_parser("shell")
-    sub.add_parser("l3d-inject")
 
     l3d_cmd = sub.add_parser("l3d")
     l3d_cmd.add_argument("cmd_args", nargs=argparse.REMAINDER)
@@ -378,53 +353,18 @@ def main():
         sys.exit(1)
 
     if args.command in ("up", "start"):
-        if getattr(args, "pull", False):
-            pull()
+        if getattr(args, "pull", False): pull()
         start()
     elif args.command in ("start-l3d", "up-l3d"):
         pull()
         container_system_start()
         start()
-        l3d(inject=True)
-        stop(clean_cache=False)
+        l3d()
+        if getattr(args, "once", False): stop(clean_cache=False)
     elif args.command in ("down", "stop"): stop(clean_cache=getattr(args, "cc", False))
     elif args.command == "shell": shell()
     elif args.command == "env": show_env_vars()
     elif args.command == "l3d": l3d(l3darg=" ".join(args.cmd_args))
-    elif args.command == "l3d-inject": l3d(inject=True)
     elif args.command == "container-reset": container_reset()
 
-def ao_build(args):
-    cmd = """
-        cd /drupal || { echo "where is /drupal" >&2; exit 1; }
-        cd $HOME/.traefik/ && docker compose --project-name traefik up -d ; cd -
-    """
-    run(["sh", "-c", cmd], check=False)
-
-def ao_arch(args):
-    archs=["linux/amd64", "linux/arm64"]
-    for arch in archs:
-        works = _testarch(arch)
-        print(f"{arch}: {works}")
-
-def _testarch(arch: str) -> bool:
-    p = run([RUNTIME, "run", "--platform", arch, "--rm", "busybox", "sh", "-c", "echo 'works'"], check=False, capture_output=True, text=True)
-    return "works" == p.stdout.strip()
-
-def ao():
-    parser = argparse.ArgumentParser(description="[a:o]")
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    build = sub.add_parser("build", help="build the project")
-    build.set_defaults(func=ao_build)
-
-    arch = sub.add_parser("arch", help="test architectures")
-    arch.set_defaults(func=ao_arch)
-
-    args = parser.parse_args()
-    args.func(args)
-
-if __name__ == "__main__":
-    script_name = os.path.basename(sys.argv[0])
-    if script_name in ("ao", "ao.py"): ao()
-    else: main()
+if __name__ == "__main__": main()
