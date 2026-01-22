@@ -1,4 +1,4 @@
-Experimental tooling to support lakedrop on macos.  
+Experimental tooling to support lakedrops on macos.
 Depends on [apple/container](https://github.com/apple/container/releases).  
 May work on other platforms too that have python3 and podman/docker.
 
