@@ -124,6 +124,8 @@ def base_run_cmd(workdir:str="/Projects"):
         create_volume(CACHEVOLUME, False)
         create_volume(CACHEVOLUME + "-traefik", FORWARDUSERID)
         create_volume(CACHEVOLUME + "-composer", FORWARDUSERID)
+        create_volume(CACHEVOLUME + "-dockerconfig", FORWARDUSERID)
+        cmd += ["-v", f"{CACHEVOLUME}:/.hostuserhome/.docker"]
         cmd += ["-v", f"{CACHEVOLUME}:/var/lib/docker"]
         cmd += ["-v", f"{CACHEVOLUME}-traefik:/.hostuserhome/.traefik"]
         cmd += ["-v", f"{CACHEVOLUME}-composer:/.hostuserhome/.composer/cache"]
@@ -205,6 +207,7 @@ def stop(clean_cache=False):
         print(f"Cleaning cache")
         run([RUNTIME, "volume", "rm", CACHEVOLUME], check=False, capture_output=not DEBUG)
         run([RUNTIME, "volume", "rm", CACHEVOLUME + "-composer"], check=False, capture_output=not DEBUG)
+        run([RUNTIME, "volume", "rm", CACHEVOLUME + "-dockerconfig"], check=False, capture_output=not DEBUG)
 
 
 def dind_kill() -> subprocess.CompletedProcess: return run([RUNTIME, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False, capture_output=not DEBUG)
