@@ -52,7 +52,7 @@ FORWARDUSERID = is_trueish(os.environ.get("LINC_FORWARDUSERID", str(sys.platform
 FORWARDHOMEDIR = is_trueish(os.environ.get("LINC_FORWARDHOMEDIR", "1"))
 DEBUG = is_trueish(os.environ.get("LINC_DEBUG", "0"))
 USERNAME = os.environ.get("LINC_USERNAME", getpass.getuser())
-RUNARGS = os.environ.get("LINC_RUNARGS","")
+RUNARGS = os.environ.get("LINC_RUNARGS",f"--cpus {os.cpu_count()} --memory 4G")
 
 class Con:
     RESET = "\033[0m"
