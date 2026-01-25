@@ -165,7 +165,6 @@ def rm() -> subprocess.CompletedProcess:
     p = run([RUNTIME, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
     if(p.returncode):
         p = run([RUNTIME, "rm", "-f", NAME], check=False, capture_output=not DEBUG)
-    run([RUNTIME, "volume", "rm", CACHEVOLUME + "-traefik"], check=False, capture_output=not DEBUG)
     return p
 
 def start():
@@ -206,11 +205,12 @@ def stop(clean_cache=False):
     if clean_cache and len(CACHEVOLUME) > 0:
         print(f"Cleaning cache")
         run([RUNTIME, "volume", "rm", CACHEVOLUME], check=False, capture_output=not DEBUG)
+        run([RUNTIME, "volume", "rm", CACHEVOLUME + "-traefik"], check=False, capture_output=not DEBUG)
         run([RUNTIME, "volume", "rm", CACHEVOLUME + "-composer"], check=False, capture_output=not DEBUG)
         run([RUNTIME, "volume", "rm", CACHEVOLUME + "-dockerconfig"], check=False, capture_output=not DEBUG)
 
 
-def dind_kill() -> subprocess.CompletedProcess: return run([RUNTIME, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker rm -f 2>/dev/null"], check=False, capture_output=not DEBUG)
+def dind_kill() -> subprocess.CompletedProcess: return run([RUNTIME, "exec", NAME, "/bin/sh", "-c", "docker ps -qa | xargs docker stop 2>/dev/null"], check=False, capture_output=not DEBUG)
 
 def container_reset():
     if RUNTIME != "container":
