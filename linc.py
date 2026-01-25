@@ -125,7 +125,7 @@ def base_run_cmd(workdir:str="/Projects"):
         create_volume(CACHEVOLUME + "-traefik", FORWARDUSERID)
         create_volume(CACHEVOLUME + "-composer", FORWARDUSERID)
         create_volume(CACHEVOLUME + "-dockerconfig", FORWARDUSERID)
-        cmd += ["-v", f"{CACHEVOLUME}:/.hostuserhome/.docker"]
+        cmd += ["-v", f"{CACHEVOLUME}-dockerconfig:/.hostuserhome/.docker"]
         cmd += ["-v", f"{CACHEVOLUME}:/var/lib/docker"]
         cmd += ["-v", f"{CACHEVOLUME}-traefik:/.hostuserhome/.traefik"]
         cmd += ["-v", f"{CACHEVOLUME}-composer:/.hostuserhome/.composer/cache"]
