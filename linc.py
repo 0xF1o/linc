@@ -35,10 +35,10 @@ def load_env_file(path: Path, prefixes: Iterable[str]) -> None:
 load_env(".env", ["LINC_"])
 
 def find_runtime() -> str:
-    def _find() -> str:
+    def _find():
         for cmd in ("container", "podman", "docker"):
             if shutil.which(cmd): return cmd
-    return os.environ.get("LINC_RUNTIME", _find())
+    return os.environ.get("LINC_RUNTIME", _find()) or ""
 
 RUNTIME = find_runtime()
 NAME = os.environ.get("LINC_NAME", "linc-shell")
@@ -137,7 +137,7 @@ def create_volume(name:str, chown:bool):
     if chown: run([RUNTIME, "run", "-v", f"{name}:/vol", "--rm", "busybox", "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/vol" ], capture_output=not DEBUG)
 
 def run_setup():
-    print("Running linc setup inside container")
+    print("Setting up container environment")
 
     setup_cmd = (
         "cp /usr/share/zoneinfo/UTC /etc/localtime ; "
@@ -323,10 +323,10 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     sl3d = sub.add_parser("start-l3d")
-    sl3d.add_argument("--once")
+    sl3d.add_argument("--once", action="store_true")
 
     ul3d = sub.add_parser("up-l3d")
-    ul3d.add_argument("--once")
+    ul3d.add_argument("--once", action="store_true")
 
     up = sub.add_parser("up")
     up.add_argument("--pull", action="store_true")
@@ -365,7 +365,7 @@ def main():
         l3d()
         if getattr(args, "once", False): stop(clean_cache=False)
     elif args.command in ("down", "stop"): stop(clean_cache=getattr(args, "cc", False))
-    elif args.command == "shell": shell()
+    elif args.command == "shell": shell(cmdparam=["/bin/sh", "-c", "alias l3d='echo holz && HOME=/.hostuserhome L3DSHELL=/bin/bash l3d'; exec /bin/sh -i"], execparam=["-e", f"PS1=({Con.DIM}linc-shell{Con.RESET}) \\w \\$ "])
     elif args.command == "env": show_env_vars()
     elif args.command == "l3d": l3d(l3darg=" ".join(args.cmd_args))
     elif args.command == "container-reset": container_reset()
