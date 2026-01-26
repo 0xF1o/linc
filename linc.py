@@ -66,7 +66,7 @@ def debug(*args, **kwargs):
     if DEBUG: print(Con.DIM, end="", flush=True); print(*args, **kwargs); print(Con.RESET, end="", flush=True)
 
 def run(cmd, capture_output:bool=False, check:bool=False, text:bool=True, dbg:bool=True, **kwargs) -> subprocess.CompletedProcess:
-    if dbg and DEBUG: print(f"{Con.DIM}run> ", end="", flush=True); debug(str(cmd)[:512])
+    if dbg and DEBUG: print(f"{Con.DIM}run> ", end="", flush=True); debug(str(cmd)[:1024])
     result = subprocess.run(cmd, capture_output=capture_output, check=check, text=text, **kwargs)
     if dbg and DEBUG and result.returncode: debug(f"returncode={result.returncode}")
     return result
@@ -116,6 +116,7 @@ def base_run_cmd(workdir:str="/Projects"):
 
     cmd += [
         "-e", f"USER={USERNAME}",
+        "-e", "L3DSHELL=/bin/bash",
         "-v", os.path.expanduser("~") + ":/.hostuserhome",
         "-w", workdir,
     ]
@@ -142,6 +143,7 @@ def run_setup():
     setup_cmd = (
         "cp /usr/share/zoneinfo/UTC /etc/localtime ; "
         "touch /etc/timezone /etc/sudoers ; "
+        "echo 'alias l3d=\"HOME=/.hostuserhome l3d\"' > /linc.bashrc ; "
         "until docker info >/dev/null 2>&1; do printf '.'; sleep 1; done; "
         "chmod 666 /var/run/docker.sock ; "
         "docker network create traefik-public 2>/dev/null ; "
@@ -225,14 +227,19 @@ def container_reset():
     container_system_start()
     print(f"{Con.BRIGHT_GREEN}Looking good!{Con.RESET}")
 
+def shell():
+    cmdparm = ["/bin/bash", "--rcfile", "/linc.bashrc"]
+    execparm = ["-e", f"PS1=({Con.DIM}linc-shell{Con.RESET}) \\w \\$ "]
+    if container_dir := get_container_dir(check=False): execparm += [f"-w", container_dir]
+    shell_exec(cmdparam=cmdparm, execparam=execparm)
 
-def shell(cmdparam=["/bin/sh"], execparam=[], check: bool=True, capture_text:bool=False) -> subprocess.CompletedProcess:
+def shell_exec(cmdparam=["/bin/sh"], execparam=[], check: bool=True, capture_text:bool=False) -> subprocess.CompletedProcess:
     cmd = [RUNTIME, "exec"] + execparam + ["-it", NAME] + cmdparam
     proc = run(cmd, capture_output=capture_text, text=capture_text)
     if check and proc.returncode: sys.exit(proc.returncode)
     return proc
 
-def get_container_dir() -> str:
+def get_container_dir(check:bool=True) -> str:
     projpath = os.path.expanduser(PROJECSTDIR).replace('\\','/')
     homepath = os.path.expanduser("~").replace('\\','/')
     cwd = os.getcwd().replace('\\','/')
@@ -242,14 +249,14 @@ def get_container_dir() -> str:
     if cwd.startswith(projpath): container_dir = "/Projects" + cwd[len(projpath):]
 
     if DEBUG: debug(f"PROJECTSDIR: {PROJECSTDIR}"); debug(f"projpath: {projpath}") ;debug(f"homepath: {homepath}"); debug(f"cwd: {cwd}"); debug(f"container_dir: {container_dir}")
-    if not container_dir:
+    if not container_dir and check:
         print(f"{Con.BRIGHT_RED}Error{Con.RESET}: Not insiede $HOME or $LINC_PROJECTSDIR.", file=sys.stderr)
         sys.exit(1)
     return container_dir
 
 
 def l3d(l3darg: str=""):
-    def shell_exec(cmdstr):
+    def _shell_exec(cmdstr):
         cmdparam = ["/bin/sh", "-c", cmdstr]
         execparam = ["-e", "HOME=/.hostuserhome"] if FORWARDHOMEDIR else []
 
@@ -257,9 +264,9 @@ def l3d(l3darg: str=""):
             groupids = ",".join(str(gid) for gid in os.getgroups())
             cmdparam = ["/bin/setpriv", "--reuid", f"{os.getuid()}", "--regid", f"{os.getgid()}", "--groups", f"{groupids}"] + cmdparam
 
-        shell(cmdparam, execparam)
+        shell_exec(cmdparam, execparam)
     container_dir = get_container_dir()        
-    shell_exec(f"cd '{container_dir}' && L3DSHELL=/bin/bash l3d {l3darg}")
+    _shell_exec(f"cd '{container_dir}' && l3d {l3darg}")
 
 
 def show_env_vars():
@@ -306,8 +313,8 @@ def main():
         "Commands for manual steps:\n"
         "  up, start [--pull] [Re]Start linc and run initial setup.\n"
         "  down, stop [--cc]  Remove linc [and purge cache].\n\n"
+        "  l3d [reset|...]    Run l3d in linc (for project commands). Arg is forwarded to l3d.\n"        
         "Tools:\n"
-        "  l3d [reset|...]    Run l3d in linc (for project commands). Arg is forwarded to l3d.\n"
         "  shell              Open an interactive root shell on the abstraction layer.\n"
         "  env                Display current LINC_* environment variables and their values.\n"
         "  container-reset    Restart container system and stop/remove existing linc container (only when LINC_RUNTIME=container).\n\n"
@@ -365,7 +372,7 @@ def main():
         l3d()
         if getattr(args, "once", False): stop(clean_cache=False)
     elif args.command in ("down", "stop"): stop(clean_cache=getattr(args, "cc", False))
-    elif args.command == "shell": shell(cmdparam=["/bin/sh", "-c", "alias l3d='echo holz && HOME=/.hostuserhome L3DSHELL=/bin/bash l3d'; exec /bin/sh -i"], execparam=["-e", f"PS1=({Con.DIM}linc-shell{Con.RESET}) \\w \\$ "])
+    elif args.command == "shell": shell()
     elif args.command == "env": show_env_vars()
     elif args.command == "l3d": l3d(l3darg=" ".join(args.cmd_args))
     elif args.command == "container-reset": container_reset()
