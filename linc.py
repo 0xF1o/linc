@@ -239,6 +239,11 @@ def shell_exec(cmdparam=["/bin/sh"], execparam=[], check: bool=True, capture_tex
     if check and proc.returncode: sys.exit(proc.returncode)
     return proc
 
+def check_ssh_agent():
+    p = shell_exec(["ssh-add", "-l"], check=False, capture_text=not DEBUG)
+    if p.returncode:
+        print(f"{Con.BRIGHT_RED}Warning{Con.RESET}: ssh-agent check failed!")
+
 def get_container_dir(check:bool=True) -> str:
     projpath = os.path.expanduser(PROJECSTDIR).replace('\\','/')
     homepath = os.path.expanduser("~").replace('\\','/')
@@ -265,7 +270,8 @@ def l3d(l3darg: str=""):
             cmdparam = ["/bin/setpriv", "--reuid", f"{os.getuid()}", "--regid", f"{os.getgid()}", "--groups", f"{groupids}"] + cmdparam
 
         shell_exec(cmdparam, execparam)
-    container_dir = get_container_dir()        
+    container_dir = get_container_dir()
+    check_ssh_agent()
     _shell_exec(f"cd '{container_dir}' && l3d {l3darg}")
 
 
